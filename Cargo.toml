@@ -1,7 +1,7 @@
 members = ["."]
 
 [package]
-name = "wawona"
+name = "muplar-wayland"
 version = "0.2.1"
 edition = "2021"
 

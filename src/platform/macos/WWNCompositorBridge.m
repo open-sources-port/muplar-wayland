@@ -2008,6 +2008,9 @@ extern void WWNWindowInfoFree(CWindowInfo *info);
     [window setTitle:newTitle];
     WWNLog("BRIDGE", @"Updated title for window %llu to '%@'", event->window_id,
            newTitle);
+    if (newTitle.length > 0) {
+      [[NSProcessInfo processInfo] setProcessName:newTitle];
+    }
   } else {
     WWNLog("BRIDGE",
            @"Warning: handleWindowTitleChanged for unknown window %llu",

@@ -7,12 +7,8 @@
 #include <unistd.h>
 
 #import <Foundation/Foundation.h>
-#if TARGET_OS_IPHONE || TARGET_OS_SIMULATOR
-#import <UIKit/UIKit.h>
-#else
 #import <AppKit/AppKit.h>
 #import <Cocoa/Cocoa.h>
-#endif
 #import <QuartzCore/QuartzCore.h>
 
 // Rust Compositor Bridge (PRIMARY INTERFACE)
@@ -39,119 +35,6 @@ typedef struct CWindowInfo {
 extern uint32_t wawona_core_pending_window_count(const void *core);
 extern CWindowInfo *wawona_core_pop_pending_window(void *core);
 extern void wawona_window_info_free(CWindowInfo *info);
-
-#if TARGET_OS_IPHONE || TARGET_OS_SIMULATOR
-
-//
-// iOS Implementation
-//
-
-#import "./ui/Settings/WWNPreferences.h"
-#import "../ios/WWNSceneDelegate.h"
-
-@interface WWNAppDelegate : NSObject <UIApplicationDelegate>
-@end
-
-@implementation WWNAppDelegate
-
-- (BOOL)application:(UIApplication *)application
-    didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
-  (void)application;
-  (void)launchOptions;
-
-  WWNLog("MAIN", @"WWN iOS starting...");
-
-  // 1. Set up XDG_RUNTIME_DIR
-  const char *runtime_dir = getenv("XDG_RUNTIME_DIR");
-  NSString *runtimePath = nil;
-  NSFileManager *fm = [NSFileManager defaultManager];
-
-  if (!runtime_dir) {
-#if TARGET_OS_SIMULATOR
-    runtimePath = [NSString stringWithFormat:@"/tmp/wawona_sim_%d", getuid()];
-#else
-    // Use NSTemporaryDirectory()/w to match WWNPreferredSharedRuntimeDir()
-    // which the preferences system and waypipe runner both expect.
-    runtimePath = [NSTemporaryDirectory() stringByAppendingPathComponent:@"w"];
-#endif
-    [fm createDirectoryAtPath:runtimePath
-        withIntermediateDirectories:YES
-                         attributes:@{NSFilePosixPermissions : @0700}
-                              error:nil];
-
-    setenv("XDG_RUNTIME_DIR", [runtimePath UTF8String], 1);
-    WWNLog("MAIN", @"Set XDG_RUNTIME_DIR to: %@", runtimePath);
-  }
-
-  // 2. Configure Vulkan driver (statically linked on iOS)
-  const char *vkDriver = WWNSettings_GetVulkanDriver();
-  if (vkDriver && strcmp(vkDriver, "none") != 0) {
-    WWNLog("MAIN", @"Vulkan driver: %s (static link)", vkDriver);
-  } else {
-    WWNLog("MAIN", @"Vulkan drivers disabled (driver selection: none)");
-  }
-
-  // 3. Initialize Rust Compositor
-  WWNCompositorBridge *compositor = [WWNCompositorBridge sharedBridge];
-
-  // Use a reasonable initial size; the scene delegate will set the
-  // actual output dimensions once the UIWindowScene is available.
-  CGSize screenSize = CGSizeMake(390, 844);
-  BOOL autoScale = [[WWNPreferencesManager sharedManager] autoScale];
-  CGFloat scale = autoScale ? 3.0 : 1.0;
-
-  [compositor setOutputWidth:(uint32_t)screenSize.width
-                      height:(uint32_t)screenSize.height
-                       scale:(float)scale];
-
-  if (![compositor startWithSocketName:@"wayland-0"]) {
-    WWNLog("MAIN", @"Error: Failed to start Rust compositor");
-    return NO;
-  }
-
-  setenv("WAYLAND_DISPLAY", [[compositor socketName] UTF8String], 1);
-
-  // 3. Configure iOS UI -> MOVED TO SCENE DELEGATE
-  WWNLog("MAIN", @"WWN iOS initialization complete (waiting for Scene "
-                 @"connection)");
-  return YES;
-}
-
-- (UISceneConfiguration *)application:(UIApplication *)application
-    configurationForConnectingSceneSession:
-        (UISceneSession *)connectingSceneSession
-                                   options:(UISceneConnectionOptions *)options {
-  (void)application;
-  (void)options;
-  UISceneConfiguration *config =
-      [[UISceneConfiguration alloc] initWithName:@"Default Configuration"
-                                     sessionRole:connectingSceneSession.role];
-  config.delegateClass = [WWNSceneDelegate class];
-  return config;
-}
-
-- (void)applicationWillTerminate:(UIApplication *)application {
-  WWNLog("MAIN", @"iOS application will terminate - shutting down gracefully");
-  [[WWNCompositorBridge sharedBridge] stop];
-}
-
-@end
-
-int main(int argc, char *argv[]) {
-  @autoreleasepool {
-    setbuf(stdout, NULL);
-    setbuf(stderr, NULL);
-
-    // Ignore SIGPIPE — broken pipes from waypipe/SSH connections must not
-    // terminate the app.  The underlying write() returns EPIPE instead.
-    signal(SIGPIPE, SIG_IGN);
-
-    return UIApplicationMain(argc, argv, nil,
-                             NSStringFromClass([WWNAppDelegate class]));
-  }
-}
-
-#else
 
 //
 // macOS Implementation
@@ -358,6 +241,27 @@ int main(int argc, char *argv[]) {
     [NSApplication sharedApplication];
     [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
 
+    // Programmatically set Dock icon to the macOS Terminal app icon
+    @autoreleasepool {
+        NSImage *icon = nil;
+        NSWorkspace *ws = [NSWorkspace sharedWorkspace];
+        NSURL *url = [ws URLForApplicationWithBundleIdentifier:@"com.apple.Terminal"];
+        if (url) {
+            icon = [ws iconForFile:[url path]];
+        } else {
+            NSString *path = [ws absolutePathForAppBundleWithIdentifier:@"com.apple.Terminal"];
+            if (path) {
+                icon = [ws iconForFile:path];
+            }
+        }
+        if (!icon) {
+            icon = [NSImage imageNamed:NSImageNameConsole];
+        }
+        if (icon) {
+            [NSApp setApplicationIconImage:icon];
+        }
+    }
+
     WWNMacAppDelegate *delegate = [[WWNMacAppDelegate alloc] init];
     [NSApp setDelegate:delegate];
 
@@ -534,4 +438,3 @@ int main(int argc, char *argv[]) {
   return 0;
 }
 
-#endif

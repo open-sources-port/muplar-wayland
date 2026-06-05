@@ -90,6 +90,7 @@ impl Dispatch<xdg_surface::XdgSurface, u32> for CompositorState {
                     toplevel.configure(configure_w as i32, configure_h as i32, states);
                     if let Some(surface_data) = state.xdg.surfaces.get_mut(&(client_id.clone(), xdg_surface_id)) {
                         surface_data.pending_serial = serial;
+                        surface_data.pending_serials.push(serial);
                     }
                     resource.configure(serial);
                     
@@ -230,6 +231,7 @@ impl Dispatch<xdg_surface::XdgSurface, u32> for CompositorState {
                         // Send surface configure
                         if let Some(surface_data) = state.xdg.surfaces.get_mut(&(client_id.clone(), xdg_surface_id)) {
                             surface_data.pending_serial = next_serial;
+                            surface_data.pending_serials.push(next_serial);
                         }
                         resource.configure(next_serial);
                         return;
@@ -238,8 +240,22 @@ impl Dispatch<xdg_surface::XdgSurface, u32> for CompositorState {
             xdg_surface::Request::AckConfigure { serial } => {
                 crate::wlog!(crate::util::logging::COMPOSITOR, "Client acked configure serial {}", serial);
                 if let Some(data) = data {
-                    if let Some(surface_data) = state.xdg.surfaces.get(&(client_id.clone(), xdg_surface_id)) {
-                        if surface_data.pending_serial != 0 && serial != surface_data.pending_serial {
+                    if let Some(surface_data) = state.xdg.surfaces.get_mut(&(client_id.clone(), xdg_surface_id)) {
+                        if !surface_data.pending_serials.is_empty() {
+                            if let Some(pos) = surface_data.pending_serials.iter().position(|&pending| pending == serial) {
+                                surface_data.pending_serials.drain(..=pos);
+                            } else {
+                                let pending = surface_data.pending_serial;
+                                resource.post_error(
+                                    xdg_surface::Error::InvalidSerial,
+                                    format!(
+                                        "ack_configure serial {} is not pending; newest pending serial {}",
+                                        serial, pending
+                                    ),
+                                );
+                                return;
+                            }
+                        } else if surface_data.pending_serial != 0 && serial != surface_data.pending_serial {
                             resource.post_error(
                                 xdg_surface::Error::InvalidSerial,
                                 format!(
@@ -249,10 +265,8 @@ impl Dispatch<xdg_surface::XdgSurface, u32> for CompositorState {
                             );
                             return;
                         }
-                    }
-                    if let Some(surface_data) = state.xdg.surfaces.get_mut(&(client_id.clone(), xdg_surface_id)) {
                         surface_data.configured = true;
-                        surface_data.pending_serial = 0;
+                        surface_data.pending_serial = surface_data.pending_serials.last().copied().unwrap_or(0);
                     }
 
                     // Mark the window as configured
