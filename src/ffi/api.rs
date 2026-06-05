@@ -1880,8 +1880,11 @@ impl WawonaCore {
                     sid);
             }
         } else {
-            crate::wlog!(crate::util::logging::FFI, "WARNING: No surface found for window {} keyboard enter", 
-                window_id.id);
+            // Surface not committed yet — save the window ID so register_window
+            // can deliver keyboard focus as soon as the surface is mapped.
+            crate::wlog!(crate::util::logging::FFI,
+                "Deferring keyboard enter for window {} (surface not yet mapped)", window_id.id);
+            state.pending_keyboard_focus_window = Some(window_id.id);
         }
     }
     

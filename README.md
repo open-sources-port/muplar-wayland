@@ -1,4 +1,6 @@
-# Wawona
+# Muplar Wayland
+
+Forked from [![Wawona](https://github.com/aspauldingcode/Wawona/]
 
 [![Nix CI (Linux/Android)](https://github.com/aspauldingcode/Wawona/actions/workflows/nix.yml/badge.svg?branch=main&event=push&job=build-linux)](https://github.com/aspauldingcode/Wawona/actions/workflows/nix.yml)
 [![Nix CI (macOS/iOS)](https://github.com/aspauldingcode/Wawona/actions/workflows/nix.yml/badge.svg?branch=main&event=push&job=build-macos-x86_64)](https://github.com/aspauldingcode/Wawona/actions/workflows/nix.yml)
@@ -119,18 +121,3 @@ You can help by:
 - Supporting ongoing development through donations if you find Wawona useful or believe in its goals
 
 Thank you for being part of the journey!
-
-
-**Donate here:**
-Ko‑fi: https://ko-fi.com/aspauldingcode
-
-Share Wawona with friends!
-
-# Discord:
-https://discord.gg/wHVSV52uw5
-
-### License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-Third-party dependencies (Rust crates, native libs, Android) use MIT, Apache 2.0, BSD, MPL-2.0, LGPL, or GPL as applicable. For a full list and how to disclose them, see [Third-Party Licenses](docs/THIRD_PARTY_LICENSES.md). A NOTICE template is in [NOTICE.example](NOTICE.example).

@@ -265,6 +265,8 @@ pub struct XdgSurfaceData {
     pub window_id: Option<u32>,
     /// Serial number for configuration
     pub pending_serial: u32,
+    /// Configure serials sent to the client and not yet acknowledged.
+    pub pending_serials: Vec<u32>,
     /// Whether initial configure was acked
     pub configured: bool,
     /// The actual protocol resource
@@ -279,6 +281,7 @@ impl XdgSurfaceData {
             surface_id,
             window_id: None,
             pending_serial: 0,
+            pending_serials: Vec::new(),
             configured: false,
             resource: None,
             geometry: None,
@@ -1225,6 +1228,11 @@ pub struct CompositorState {
     /// Surface ID to Window ID mapping
     pub surface_to_window: HashMap<u32, u32>,
     
+    /// Deferred keyboard focus: set when inject_keyboard_enter fires before the
+    /// window's first surface has been committed (race between becomeKeyWindow
+    /// and the client's first xdg_toplevel map). Delivered in register_window.
+    pub pending_keyboard_focus_window: Option<u64>,
+    
     /// Subsurface registry, keyed by subsurface's surface ID
     pub subsurfaces: HashMap<u32, SubsurfaceState>,
     
@@ -1370,6 +1378,7 @@ impl CompositorState {
             surfaces: HashMap::new(),
             windows: HashMap::new(),
             surface_to_window: HashMap::new(),
+            pending_keyboard_focus_window: None,
             subsurfaces: HashMap::new(),
             subsurface_children: HashMap::new(),
             protocol_to_internal_surface: HashMap::new(),
@@ -1834,5 +1843,3 @@ impl ProtocolState for CompositorState {
         self.cleanup_disconnected_client(client);
     }
 }
-
-

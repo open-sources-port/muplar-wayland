@@ -122,6 +122,32 @@
   return YES;
 }
 
+// Intercept all key equivalents (Ctrl+C, Ctrl+Z, Ctrl+X, Cmd+* etc.)
+// so they are delivered to keyDown: instead of being consumed by the
+// macOS menu bar. This is critical for terminal emulators where Ctrl+C
+// must send SIGINT and Ctrl+Z must send SIGTSTP.
+- (BOOL)performKeyEquivalent:(NSEvent *)event {
+  // Let Cmd+Q through so the user can quit the app.
+  if ((event.modifierFlags & NSEventModifierFlagCommand) &&
+      !(event.modifierFlags & NSEventModifierFlagControl) &&
+      !(event.modifierFlags & NSEventModifierFlagOption)) {
+    NSString *chars = [event charactersIgnoringModifiers];
+    if ([chars isEqualToString:@"q"] || [chars isEqualToString:@"Q"]) {
+      return NO; // Let macOS handle Cmd+Q
+    }
+    if ([chars isEqualToString:@"h"] || [chars isEqualToString:@"H"]) {
+      return NO; // Let macOS handle Cmd+H (Hide)
+    }
+    if ([chars isEqualToString:@"m"] || [chars isEqualToString:@"M"]) {
+      return NO; // Let macOS handle Cmd+M (Minimize)
+    }
+  }
+
+  // For all other key equivalents: handle them ourselves via keyDown:
+  [self keyDown:event];
+  return YES;
+}
+
 - (BOOL)isFlipped {
   return YES;
 }

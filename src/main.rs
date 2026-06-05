@@ -1,11 +1,11 @@
-use wawona::platform::{Platform, api::StubPlatform};
+use muplar_wayland::platform::{Platform, api::StubPlatform};
 use anyhow::Result;
 
 fn main() -> Result<()> {
     // Initialize logging
     // Set default log level to info
     if std::env::var("RUST_LOG").is_err() {
-        std::env::set_var("RUST_LOG", "info,wawona=debug");
+        std::env::set_var("RUST_LOG", "info,muplar_wayland=debug");
     }
     // Initialize logging with standardized format
     tracing_subscriber::fmt()
@@ -17,25 +17,19 @@ fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
     if args.len() > 1 && (args[1] == "--version" || args[1] == "-v") {
         let version = include_str!("../VERSION").trim();
-        println!("Wawona v{}", version);
+        println!("Muplar Wayland Compositor v{}", version);
         
-        // Get OS version if on macOS
-        #[cfg(any(target_os = "macos", target_os = "ios"))]
+        // Get macOS version
+        #[cfg(target_os = "macos")]
         {
-            #[cfg(target_os = "macos")]
             let os_ver = std::process::Command::new("sw_vers")
                 .arg("-productVersion")
                 .output()
                 .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
                 .unwrap_or_else(|_| "unknown".to_string());
-            
-            #[cfg(target_os = "macos")]
             println!("macOS v{}", os_ver);
-            
-            #[cfg(target_os = "ios")]
-            println!("iOS v{}", std::env::consts::OS);
         }
-        #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+        #[cfg(not(target_os = "macos"))]
         {
             println!("{}", std::env::consts::OS);
         }

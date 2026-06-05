@@ -71,6 +71,7 @@ impl CompositorState {
             
             if let Some(surface_data) = self.xdg.surfaces.get_mut(&(client_id, xdg_surface_id)) {
                 surface_data.pending_serial = serial;
+                surface_data.pending_serials.push(serial);
                 if let Some(resource) = &surface_data.resource {
                     crate::wlog!(crate::util::logging::COMPOSITOR, "Actually sending xdg_surface.configure(serial={}) to xdg_surface_id={}", serial, xdg_surface_id);
                     resource.configure(serial);
