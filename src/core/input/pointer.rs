@@ -76,9 +76,11 @@ impl PointerState {
         x: f64,
         y: f64,
     ) {
-        let client = surface.client();
+        let Some(client) = surface.client() else {
+            return;
+        };
         for ptr in &self.resources {
-            if ptr.client() == client {
+            if ptr.client().as_ref() == Some(&client) {
                 ptr.enter(serial, surface, x, y);
             }
         }
@@ -86,9 +88,11 @@ impl PointerState {
 
     /// Send leave event to pointer resources matching the surface's client
     pub fn broadcast_leave(&self, serial: u32, surface: &WlSurface) {
-        let client = surface.client();
+        let Some(client) = surface.client() else {
+            return;
+        };
         for ptr in &self.resources {
-            if ptr.client() == client {
+            if ptr.client().as_ref() == Some(&client) {
                 ptr.leave(serial, surface);
             }
         }

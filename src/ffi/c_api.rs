@@ -275,6 +275,7 @@ pub enum CWindowEventType {
     MinimizeRequested = 9,
     MaximizeRequested = 10,
     UnmaximizeRequested = 11,
+    CloseRequested = 12,
 }
 
 /// C-compatible window event structure
@@ -407,6 +408,11 @@ pub extern "C" fn WWNCorePopWindowEvent(core: *mut WWNCore) -> *mut CWindowEvent
                 },
                 super::types::WindowEvent::UnmaximizeRequested { window_id } => {
                     c_event.event_type = CWindowEventType::UnmaximizeRequested as u64;
+                    c_event.window_id = window_id.id;
+                    true
+                },
+                super::types::WindowEvent::CloseRequested { window_id } => {
+                    c_event.event_type = CWindowEventType::CloseRequested as u64;
                     c_event.window_id = window_id.id;
                     true
                 },

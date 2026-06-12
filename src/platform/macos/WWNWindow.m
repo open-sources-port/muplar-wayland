@@ -519,6 +519,12 @@ static uint32_t MacosToXkbKeycode(unsigned short macCode) {
 // Called by the text input system with composed text (emoji, IME, dead
 // keys) or with ordinary characters via interpretKeyEvents:.
 - (void)insertText:(id)string replacementRange:(NSRange)replacementRange {
+  // Ignore any text replacement/autocorrect requests as they are desynchronized in a terminal/compositor
+  if (replacementRange.location != NSNotFound) {
+    WWNLog("INPUT", @"Ignoring text replacement/autocorrect at index %lu", (unsigned long)replacementRange.location);
+    return;
+  }
+
   NSString *str = [string isKindOfClass:[NSAttributedString class]]
                       ? [(NSAttributedString *)string string]
                       : (NSString *)string;
@@ -707,6 +713,8 @@ static uint32_t MacosToXkbKeycode(unsigned short macCode) {
 }
 
 - (BOOL)windowShouldClose:(NSWindow *)sender {
+  self.suppressCompositorCallbacks = YES;
+  [self orderOut:nil];
   [[WWNCompositorBridge sharedBridge] requestWindowClose:self.wwnWindowId];
   return NO;
 }

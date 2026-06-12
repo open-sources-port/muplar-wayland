@@ -1527,6 +1527,7 @@ typedef enum : uint32_t {
   CWindowEventTypeMinimizeRequested = 9,
   CWindowEventTypeMaximizeRequested = 10,
   CWindowEventTypeUnmaximizeRequested = 11,
+  CWindowEventTypeCloseRequested = 12,
 } CWindowEventType;
 
 typedef struct CWindowEvent {
@@ -1612,6 +1613,9 @@ extern void WWNWindowInfoFree(CWindowInfo *info);
 #if !TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
     [self handleWindowUnmaximizeRequested:event];
 #endif
+    break;
+  case CWindowEventTypeCloseRequested:
+    [self handleWindowCloseRequested:event];
     break;
   }
 }
@@ -1953,6 +1957,26 @@ extern void WWNWindowInfoFree(CWindowInfo *info);
 #endif
 }
 
+- (void)handleWindowCloseRequested:(CWindowEvent *)event {
+  WWNLog("BRIDGE", @"handleWindowCloseRequested: id=%llu", event->window_id);
+#if !TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
+  NSWindow *window = [_windows objectForKey:@(event->window_id)];
+  if (window) {
+    if ([window isKindOfClass:[WWNWindow class]]) {
+      ((WWNWindow *)window).suppressCompositorCallbacks = YES;
+    }
+    [window orderOut:nil];
+    [self requestWindowClose:event->window_id];
+  }
+#else
+  UIView *view = [_windows objectForKey:@(event->window_id)];
+  if (view) {
+    [view removeFromSuperview];
+    [_windows removeObjectForKey:@(event->window_id)];
+  }
+#endif
+}
+
 - (void)handleWindowDestroyed:(CWindowEvent *)event {
 #if TARGET_OS_IPHONE || TARGET_OS_SIMULATOR
   UIView *view = [_windows objectForKey:@(event->window_id)];
@@ -1983,8 +2007,9 @@ extern void WWNWindowInfoFree(CWindowInfo *info);
       [_windows removeObjectForKey:@(event->window_id)];
 
       // Avoid NSWindow close-time delegate/first-responder cascades when the
-      // Wayland client has already been torn down. Hiding + detaching keeps
-      // host alive without touching potentially invalid compositor state.
+      // Wayland client has already been torn down. AppKit may still have close
+      // or transform animations queued for this host window, so only hide and
+      // detach it here.
       [window setDelegate:nil];
       [window orderOut:nil];
       [window setContentView:nil];

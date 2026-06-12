@@ -582,9 +582,9 @@ impl WawonaCore {
 impl WawonaCore {
     /// Remove FFI-side caches owned by a disconnected client.
     fn cleanup_client_ffi_state(&self, client_id: &wayland_server::backend::ClientId, internal_id: u32) {
-        let disconnected_surface_ids: Vec<u32> = {
+        let (disconnected_surface_ids, disconnected_window_ids): (Vec<u32>, Vec<u32>) = {
             let state = self.state.read().unwrap();
-            state
+            let surface_ids: Vec<u32> = state
                 .surfaces
                 .iter()
                 .filter_map(|(sid, surf)| {
@@ -592,11 +592,29 @@ impl WawonaCore {
                         .ok()
                         .and_then(|s| (s.client_id.as_ref() == Some(client_id)).then_some(*sid))
                 })
-                .collect()
+                .collect();
+            let mut window_ids: Vec<u32> = surface_ids
+                .iter()
+                .filter_map(|sid| state.surface_to_window.get(sid).copied())
+                .collect();
+            window_ids.sort_unstable();
+            window_ids.dedup();
+            (surface_ids, window_ids)
         };
 
-        if disconnected_surface_ids.is_empty() {
+        if disconnected_surface_ids.is_empty() && disconnected_window_ids.is_empty() {
             return;
+        }
+
+        if !disconnected_window_ids.is_empty() {
+            let mut windows = self.ffi_windows.write().unwrap();
+            let mut window_events = self.pending_window_events.write().unwrap();
+            for wid in &disconnected_window_ids {
+                windows.remove(&(*wid as u64));
+                window_events.push(WindowEvent::Destroyed {
+                    window_id: WindowId { id: *wid as u64 },
+                });
+            }
         }
 
         {
@@ -626,9 +644,10 @@ impl WawonaCore {
 
         crate::wlog!(
             crate::util::logging::FFI,
-            "ClientDisconnected cleanup: internal_id={} surfaces_removed={}",
+            "ClientDisconnected cleanup: internal_id={} surfaces_removed={} windows_destroyed={}",
             internal_id,
-            disconnected_surface_ids.len()
+            disconnected_surface_ids.len(),
+            disconnected_window_ids.len()
         );
     }
 
