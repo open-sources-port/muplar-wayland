@@ -134,3 +134,4 @@ mesa/
 scripts/setup_inspiration.sh
 Inspiration/
 waypipe/
+/**/.orig
