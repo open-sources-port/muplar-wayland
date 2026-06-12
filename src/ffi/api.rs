@@ -1285,11 +1285,13 @@ fn ensure_pointer_focus(
     if let Some(surface) = state.surfaces.get(&target_sid).cloned() {
         let surface = surface.read().unwrap();
         if let Some(res) = &surface.resource {
-            let serial = serial_fn();
-            state.seat.pointer.last_enter_serial = serial;
-            let x = state.seat.pointer.x;
-            let y = state.seat.pointer.y;
-            state.seat.broadcast_pointer_enter(serial, res, x, y);
+            if res.is_alive() {
+                let serial = serial_fn();
+                state.seat.pointer.last_enter_serial = serial;
+                let x = state.seat.pointer.x;
+                let y = state.seat.pointer.y;
+                state.seat.broadcast_pointer_enter(serial, res, x, y);
+            }
         }
     }
 }
@@ -1711,8 +1713,10 @@ impl WawonaCore {
             if let Some(surface) = state.surfaces.get(&sid).cloned() {
                  let surface = surface.read().unwrap();
                  if let Some(res) = &surface.resource {
-                    state.seat.pointer.last_enter_serial = serial;
-                     state.seat.broadcast_pointer_enter(serial, res, sx, sy);
+                     if res.is_alive() {
+                         state.seat.pointer.last_enter_serial = serial;
+                         state.seat.broadcast_pointer_enter(serial, res, sx, sy);
+                     }
                  }
             }
         }
@@ -1743,7 +1747,9 @@ impl WawonaCore {
             if let Some(surface) = state.surfaces.get(&sid).cloned() {
                  let surface = surface.read().unwrap();
                  if let Some(res) = &surface.resource {
-                     state.seat.broadcast_pointer_leave(serial, res);
+                     if res.is_alive() {
+                         state.seat.broadcast_pointer_leave(serial, res);
+                     }
                  }
             }
         }
@@ -2423,7 +2429,23 @@ impl WawonaCore {
             return;
         }
         crate::wlog!(crate::util::logging::FFI, "Request window close: {}", window_id.id);
-        // TODO: Send xdg_toplevel::close
+        
+        let state = self.state.read().unwrap();
+        let mut closed = false;
+        for tl in state.xdg.toplevels.values() {
+            if tl.window_id == window_id.id as u32 {
+                if let Some(resource) = &tl.resource {
+                    resource.close();
+                    closed = true;
+                }
+                break;
+            }
+        }
+        drop(state);
+        
+        if closed {
+            self.flush_clients();
+        }
     }
     
     /// Start interactive move

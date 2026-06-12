@@ -195,6 +195,19 @@ pub extern "C" fn WWNCoreInjectWindowResize(
     }));
 }
 
+/// Request window close
+#[no_mangle]
+pub extern "C" fn WWNCoreRequestWindowClose(
+    core: *mut WWNCore,
+    window_id: u64
+) {
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        if core.is_null() { return; }
+        let core = unsafe { &*core };
+        core.request_window_close(WindowId { id: window_id });
+    }));
+}
+
 /// Set window activation state (focus) and send a configure event.
 #[no_mangle]
 pub extern "C" fn WWNCoreSetWindowActivated(

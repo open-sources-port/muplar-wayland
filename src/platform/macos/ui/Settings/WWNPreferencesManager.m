@@ -237,7 +237,11 @@ static NSString *WWNPreferredSharedRuntimeDir(void) {
     kWWNPrefsAutoScale : @YES,
     kWWNPrefsRespectSafeArea : @YES,
     kWWNPrefsHasSeenWelcome : @NO,
+#if TARGET_OS_IPHONE || TARGET_OS_SIMULATOR
     kWWNPrefsRenderMacOSPointer : @NO,
+#else
+    kWWNPrefsRenderMacOSPointer : @YES,
+#endif
     // Input
     kWWNPrefsTouchInputType : @"Multi-Touch",
     kWWNPrefsSwapCmdWithAlt : @YES,

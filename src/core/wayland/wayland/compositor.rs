@@ -206,6 +206,28 @@ impl Dispatch<wl_surface::WlSurface, u32> for CompositorState {
             _ => {}
         }
     }
+
+    fn destroyed(
+        state: &mut Self,
+        client: wayland_server::backend::ClientId,
+        resource: &wl_surface::WlSurface,
+        data: &u32,
+    ) {
+        let surface_id = *data;
+        let protocol_id = resource.id().protocol_id();
+        state.protocol_to_internal_surface.remove(&(client, protocol_id));
+        state.remove_surface(surface_id);
+        
+        // Also remove pointer/keyboard focus if they were on this surface
+        if state.seat.pointer.focus == Some(surface_id) {
+            state.seat.pointer.focus = None;
+        }
+        if state.seat.keyboard.focus == Some(surface_id) {
+            state.seat.keyboard.focus = None;
+        }
+        
+        crate::wlog!(crate::util::logging::COMPOSITOR, "Surface resource destroyed: surface_id={}", surface_id);
+    }
 }
 
 impl Dispatch<wl_region::WlRegion, ()> for CompositorState {

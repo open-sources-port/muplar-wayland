@@ -213,9 +213,11 @@ impl CompositorState {
                     if let Some(surface) = self.get_surface(old_id) {
                         let surface = surface.read().unwrap();
                         if let Some(res) = &surface.resource {
-                            let serial = self.next_serial();
-                            for pointer in &self.seat.pointer.resources {
-                                pointer.leave(serial, res);
+                            if res.is_alive() {
+                                let serial = self.next_serial();
+                                for pointer in &self.seat.pointer.resources {
+                                    pointer.leave(serial, res);
+                                }
                             }
                         }
                     }
@@ -224,10 +226,12 @@ impl CompositorState {
                 if let Some(surface) = self.get_surface(surface_id) {
                     let surface = surface.read().unwrap();
                     if let Some(res) = &surface.resource {
-                        let serial = self.next_serial();
-                            self.seat.pointer.last_enter_serial = serial;
-                        for pointer in &self.seat.pointer.resources {
-                            pointer.enter(serial, res, lx, ly);
+                        if res.is_alive() {
+                            let serial = self.next_serial();
+                                self.seat.pointer.last_enter_serial = serial;
+                            for pointer in &self.seat.pointer.resources {
+                                pointer.enter(serial, res, lx, ly);
+                            }
                         }
                     }
                 }
@@ -242,9 +246,11 @@ impl CompositorState {
                 if let Some(surface) = self.get_surface(old_id) {
                     let surface = surface.read().unwrap();
                     if let Some(res) = &surface.resource {
-                        let serial = self.next_serial();
-                        for pointer in &self.seat.pointer.resources {
-                            pointer.leave(serial, res);
+                        if res.is_alive() {
+                            let serial = self.next_serial();
+                            for pointer in &self.seat.pointer.resources {
+                                pointer.leave(serial, res);
+                            }
                         }
                     }
                 }
@@ -531,7 +537,7 @@ impl CompositorState {
                                     None
                                 };
 
-                                if let Some(res) = old_resource {
+                                if let Some(res) = old_resource.filter(|r| r.is_alive()) {
                                     self.serial += 1;
                                     let serial = self.serial;
                                     self.seat.broadcast_pointer_leave(serial, &res);
@@ -545,7 +551,7 @@ impl CompositorState {
                                 None
                             };
 
-                            if let Some(res) = new_resource {
+                            if let Some(res) = new_resource.filter(|r| r.is_alive()) {
                                 let lx = x - win_geo.x as f64;
                                 let ly = y - win_geo.y as f64;
                                 
@@ -597,7 +603,7 @@ impl CompositorState {
                             None
                         };
 
-                        if let Some(res) = old_resource {
+                        if let Some(res) = old_resource.filter(|r| r.is_alive()) {
                              self.serial += 1;
                              let serial = self.serial;
                              self.seat.broadcast_pointer_leave(serial, &res);

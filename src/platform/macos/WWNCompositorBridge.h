@@ -7,6 +7,8 @@
 #import <Foundation/Foundation.h>
 #if TARGET_OS_IPHONE
 #import <UIKit/UIKit.h>
+#else
+#import <AppKit/AppKit.h>
 #endif
 
 NS_ASSUME_NONNULL_BEGIN
@@ -113,6 +115,8 @@ typedef struct {
 
 - (void)setWindowActivated:(uint64_t)windowId active:(BOOL)active;
 
+- (void)requestWindowClose:(uint64_t)windowId;
+
 /// Inject keyboard modifiers
 - (void)injectModifiersWithDepressed:(uint32_t)depressed
                              latched:(uint32_t)latched
@@ -203,6 +207,8 @@ typedef struct {
 
 #if TARGET_OS_IPHONE || TARGET_OS_SIMULATOR
 @property(nonatomic, weak) UIView *containerView;
+#else
+@property(nonatomic, weak, nullable) NSWindow *parentWindowForClients;
 #endif
 
 @end

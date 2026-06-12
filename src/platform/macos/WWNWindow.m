@@ -706,6 +706,11 @@ static uint32_t MacosToXkbKeycode(unsigned short macCode) {
   return self;
 }
 
+- (BOOL)windowShouldClose:(NSWindow *)sender {
+  [[WWNCompositorBridge sharedBridge] requestWindowClose:self.wwnWindowId];
+  return NO;
+}
+
 - (void)windowDidResize:(NSNotification *)notification {
   if (self.processingResize || self.suppressCompositorCallbacks ||
       !self.isVisible) {
@@ -743,6 +748,22 @@ static uint32_t MacosToXkbKeycode(unsigned short macCode) {
   [[WWNCompositorBridge sharedBridge]
       injectKeyboardEnterForWindow:self.wwnWindowId
                               keys:@[]];
+
+  // Dynamically set Dock icon based on window title
+  NSString *title = [self.title lowercaseString];
+  NSImage *icon = nil;
+  if ([NSImage respondsToSelector:@selector(imageWithSystemSymbolName:accessibilityDescription:)]) {
+    if ([title containsString:@"foot"] || [title containsString:@"terminal"] || [title containsString:@"shell"]) {
+      icon = [NSImage imageWithSystemSymbolName:@"terminal" accessibilityDescription:nil];
+    } else if ([title containsString:@"gedit"] || [title containsString:@"text"] || [title containsString:@"editor"]) {
+      icon = [NSImage imageWithSystemSymbolName:@"doc.text" accessibilityDescription:nil];
+    } else {
+      icon = [NSImage imageWithSystemSymbolName:@"macwindow" accessibilityDescription:nil];
+    }
+  }
+  if (icon) {
+    [NSApp setApplicationIconImage:icon];
+  }
 }
 
 - (void)resignKeyWindow {
@@ -759,6 +780,12 @@ static uint32_t MacosToXkbKeycode(unsigned short macCode) {
 
   [[WWNCompositorBridge sharedBridge]
       injectKeyboardLeaveForWindow:self.wwnWindowId];
+
+  // Restore default app icon
+  NSImage *defaultIcon = [NSImage imageNamed:@"NSApplicationIcon"];
+  if (defaultIcon) {
+    [NSApp setApplicationIconImage:defaultIcon];
+  }
 }
 
 @end

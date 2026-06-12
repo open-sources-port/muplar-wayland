@@ -42,6 +42,7 @@ extern void WWNCoreNotifyFramePresented(void *core, uint32_t surface_id,
 extern void WWNCoreFree(void *core);
 extern void WWNCoreInjectWindowResize(void *core, uint64_t window_id,
                                       uint32_t width, uint32_t height);
+extern void WWNCoreRequestWindowClose(void *core, uint64_t window_id);
 extern void WWNCoreSetWindowActivated(void *core, uint64_t window_id,
                                       bool active);
 extern void WWNCoreSetWindowActivatedSilent(void *core, uint64_t window_id,
@@ -404,6 +405,11 @@ extern void WWNRenderSceneFree(CRenderScene *scene);
 
 - (BOOL)startWithSocketName:(NSString *)socketName {
   [self _setupRuntimeEnvironmentWithSocketName:socketName];
+
+  if (!_rustCore) {
+    WWNLog("BRIDGE", @"Re-creating WWNCore...");
+    _rustCore = WWNCoreNew();
+  }
 
   if (!_rustCore) {
     WWNLog("BRIDGE", @"No Rust core");
@@ -1402,6 +1408,15 @@ extern void WWNCoreInject_touch_frame(void *core);
   }
   [self _dispatchToRust:^{
     WWNCoreSetWindowActivated(self->_rustCore, windowId, active);
+  }];
+}
+
+- (void)requestWindowClose:(uint64_t)windowId {
+  if (!_rustCore) {
+    return;
+  }
+  [self _dispatchToRust:^{
+    WWNCoreRequestWindowClose(self->_rustCore, windowId);
   }];
 }
 - (void)injectModifiersWithDepressed:(uint32_t)depressed
@@ -2434,3 +2449,54 @@ extern void WWNWindowInfoFree(CWindowInfo *info);
 }
 
 @end
+
+#if !TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
+#ifdef __cplusplus
+extern "C" {
+#endif
+  void MuplarWawonaStartInProcess(const char *socket_name) {
+    void (^block)(void) = ^{
+      NSScreen *screen = [NSScreen mainScreen];
+      CGFloat scale = screen ? screen.backingScaleFactor : 1.0;
+      
+      WWNCompositorBridge *bridge = [WWNCompositorBridge sharedBridge];
+      [bridge setOutputWidth:1024 height:768 scale:(float)scale];
+      [bridge setForceSSD:NO];
+      
+      NSString *socketNS = socket_name ? [NSString stringWithUTF8String:socket_name] : @"wayland-0";
+      [bridge startWithSocketName:socketNS];
+    };
+    if ([NSThread isMainThread]) {
+      block();
+    } else {
+      dispatch_sync(dispatch_get_main_queue(), block);
+    }
+  }
+
+  void MuplarWawonaStopInProcess(void) {
+    void (^block)(void) = ^{
+      [[WWNCompositorBridge sharedBridge] stop];
+    };
+    if ([NSThread isMainThread]) {
+      block();
+    } else {
+      dispatch_sync(dispatch_get_main_queue(), block);
+    }
+  }
+
+  bool MuplarWawonaIsRunningInProcess(void) {
+    __block BOOL running = NO;
+    void (^block)(void) = ^{
+      running = [[WWNCompositorBridge sharedBridge] isRunning];
+    };
+    if ([NSThread isMainThread]) {
+      block();
+    } else {
+      dispatch_sync(dispatch_get_main_queue(), block);
+    }
+    return running;
+  }
+#ifdef __cplusplus
+}
+#endif
+#endif
