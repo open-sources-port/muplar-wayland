@@ -75,7 +75,6 @@ impl Dispatch<xdg_wm_base::XdgWmBase, ()> for CompositorState {
                 tracing::trace!("Created xdg_positioner");
             }
             xdg_wm_base::Request::Pong { serial } => {
-                crate::wlog!(crate::util::logging::COMPOSITOR, "Received xdg_wm_base.pong for serial {}", serial);
                 // Clear the pending ping record — client is responsive
                 if let Some((_client_id, shell_id, ts)) = state.xdg.pending_pings.remove(&serial) {
                     let latency_ms = ts.elapsed().as_millis();

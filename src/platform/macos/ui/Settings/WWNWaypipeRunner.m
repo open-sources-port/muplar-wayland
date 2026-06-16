@@ -739,19 +739,23 @@ extern int weston_terminal_main(int argc, char **argv);
 
   outPipe.fileHandleForReading.readabilityHandler = ^(NSFileHandle *h) {
     NSData *d = h.availableData;
-    if (d.length > 0) {
-      NSString *s =
-          [[NSString alloc] initWithData:d encoding:NSUTF8StringEncoding];
-      [self parseOutput:s isError:NO];
+    if (d.length == 0) {
+      h.readabilityHandler = nil;
+      return;
     }
+    NSString *s =
+        [[NSString alloc] initWithData:d encoding:NSUTF8StringEncoding];
+    [self parseOutput:s isError:NO];
   };
   errPipe.fileHandleForReading.readabilityHandler = ^(NSFileHandle *h) {
     NSData *d = h.availableData;
-    if (d.length > 0) {
-      NSString *s =
-          [[NSString alloc] initWithData:d encoding:NSUTF8StringEncoding];
-      [self parseOutput:s isError:YES];
+    if (d.length == 0) {
+      h.readabilityHandler = nil;
+      return;
     }
+    NSString *s =
+        [[NSString alloc] initWithData:d encoding:NSUTF8StringEncoding];
+    [self parseOutput:s isError:YES];
   };
 
   NSError *err;
