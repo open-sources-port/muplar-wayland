@@ -5,11 +5,7 @@
 //  from Objective-C code in the compositor.
 
 #import <Foundation/Foundation.h>
-#if TARGET_OS_IPHONE
-#import <UIKit/UIKit.h>
-#else
 #import <AppKit/AppKit.h>
-#endif
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -205,11 +201,7 @@ typedef struct {
 /// @return Dictionary with windowId, width, height, title keys, or nil if none
 - (nullable NSDictionary *)popPendingWindow;
 
-#if TARGET_OS_IPHONE || TARGET_OS_SIMULATOR
-@property(nonatomic, weak) UIView *containerView;
-#else
 @property(nonatomic, weak, nullable) NSWindow *parentWindowForClients;
-#endif
 
 @end
 

@@ -2,23 +2,11 @@
 //  Direct C API - calling plain C exports from Rust
 
 #import "WWNCompositorBridge.h"
-#if !TARGET_OS_IPHONE
 #import "WWNPopupWindow.h"
-#endif
-#if TARGET_OS_IPHONE || TARGET_OS_SIMULATOR
-#import "WWNCompositorView_ios.h"
-#import "WWNPopupHost.h"
-#endif
 #import "../../util/WWNLog.h"
 #import "WWNPlatformCallbacks.h"
-#if !TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
 #import "WWNWindow.h"
-#endif
-#if TARGET_OS_IPHONE || TARGET_OS_SIMULATOR
-#import <UIKit/UIKit.h>
-#else
 #import <Cocoa/Cocoa.h>
-#endif
 #import <IOSurface/IOSurfaceRef.h>
 #import <QuartzCore/QuartzCore.h> // For CALayer
 #if !TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR

@@ -3,11 +3,7 @@
 
 #import <Foundation/Foundation.h>
 
-#if TARGET_OS_IPHONE || TARGET_OS_SIMULATOR
-#import <UIKit/UIKit.h>
-#else
 #import <Cocoa/Cocoa.h>
-#endif
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -33,13 +29,8 @@ NS_ASSUME_NONNULL_BEGIN
 /// Implementation of platform callbacks
 @interface WWNPlatformCallbacks : NSObject <WWNPlatformCallbacksProtocol>
 
-#if !TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
 @property(nonatomic, strong)
     NSMutableDictionary<NSNumber *, NSWindow *> *windowRegistry;
-#else
-@property(nonatomic, strong)
-    NSMutableDictionary<NSNumber *, UIWindow *> *windowRegistry;
-#endif
 
 + (instancetype)sharedCallbacks;
 
