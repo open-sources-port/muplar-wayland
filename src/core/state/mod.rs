@@ -857,8 +857,8 @@ impl SeatState {
         self.pointer.broadcast_frame(focused_client);
     }
 
-    pub fn broadcast_pointer_axis(&mut self, time: u32, axis: wl_pointer::Axis, value: f64, focused_client: Option<&wayland_server::Client>) {
-        self.pointer.broadcast_axis(time, axis, value, focused_client);
+    pub fn broadcast_pointer_axis(&mut self, time: u32, axis: wl_pointer::Axis, value: f64, discrete: i32, source: crate::ffi::types::AxisSource, focused_client: Option<&wayland_server::Client>) {
+        self.pointer.broadcast_axis(time, axis, value, discrete, source, focused_client);
     }
 
     pub fn broadcast_key(&mut self, serial: u32, time: u32, key: u32, state: wl_keyboard::KeyState, focused_client: Option<&wayland_server::Client>) {

@@ -569,6 +569,41 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a"
 
 [[package]]
+name = "muplar-wayland"
+version = "0.2.1"
+dependencies = [
+ "anyhow",
+ "ash",
+ "bitflags",
+ "chrono",
+ "clap",
+ "getrandom 0.2.17",
+ "libc",
+ "libloading",
+ "memoffset",
+ "nix",
+ "serde_json",
+ "ssh2",
+ "tempfile",
+ "thiserror",
+ "tracing",
+ "tracing-subscriber",
+ "uniffi",
+ "wayland-backend",
+ "wayland-client",
+ "wayland-protocols",
+ "wayland-protocols-hyprland",
+ "wayland-protocols-misc",
+ "wayland-protocols-plasma",
+ "wayland-protocols-wlr",
+ "wayland-scanner",
+ "wayland-server",
+ "wayland-wf-shell",
+ "waypipe",
+ "xkbcommon",
+]
+
+[[package]]
 name = "nix"
 version = "0.30.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1386,41 +1421,6 @@ dependencies = [
  "hashbrown 0.15.5",
  "indexmap",
  "semver",
-]
-
-[[package]]
-name = "wawona"
-version = "0.2.1"
-dependencies = [
- "anyhow",
- "ash",
- "bitflags",
- "chrono",
- "clap",
- "getrandom 0.2.17",
- "libc",
- "libloading",
- "memoffset",
- "nix",
- "serde_json",
- "ssh2",
- "tempfile",
- "thiserror",
- "tracing",
- "tracing-subscriber",
- "uniffi",
- "wayland-backend",
- "wayland-client",
- "wayland-protocols",
- "wayland-protocols-hyprland",
- "wayland-protocols-misc",
- "wayland-protocols-plasma",
- "wayland-protocols-wlr",
- "wayland-scanner",
- "wayland-server",
- "wayland-wf-shell",
- "waypipe",
- "xkbcommon",
 ]
 
 [[package]]

@@ -1675,8 +1675,8 @@ impl WawonaCore {
         _window_id: WindowId,
         axis: PointerAxis,
         value: f64,
-        _discrete: i32,
-        _source: AxisSource,
+        discrete: i32,
+        source: AxisSource,
         timestamp_ms: u32,
     ) {
         if !self.is_running() {
@@ -1688,7 +1688,7 @@ impl WawonaCore {
             PointerAxis::Vertical => wayland_server::protocol::wl_pointer::Axis::VerticalScroll,
             PointerAxis::Horizontal => wayland_server::protocol::wl_pointer::Axis::HorizontalScroll,
         };
-        state.seat.broadcast_pointer_axis(timestamp_ms, wl_axis, value, focused_client.as_ref());
+        state.seat.broadcast_pointer_axis(timestamp_ms, wl_axis, value, discrete, source, focused_client.as_ref());
         state.seat.broadcast_pointer_frame(focused_client.as_ref());
     }
     

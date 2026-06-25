@@ -150,11 +150,25 @@ impl PointerState {
         time: u32,
         axis: wl_pointer::Axis,
         value: f64,
+        discrete: i32,
+        source: crate::ffi::types::AxisSource,
         focused_client: Option<&wayland_server::Client>,
     ) {
+        let wl_source = match source {
+            crate::ffi::types::AxisSource::Wheel => wayland_server::protocol::wl_pointer::AxisSource::Wheel,
+            crate::ffi::types::AxisSource::Finger => wayland_server::protocol::wl_pointer::AxisSource::Finger,
+            crate::ffi::types::AxisSource::Continuous => wayland_server::protocol::wl_pointer::AxisSource::Continuous,
+            crate::ffi::types::AxisSource::WheelTilt => wayland_server::protocol::wl_pointer::AxisSource::WheelTilt,
+        };
         if let Some(focused) = focused_client {
             for ptr in &self.resources {
                 if ptr.client().as_ref() == Some(focused) {
+                    if ptr.version() >= 5 {
+                        ptr.axis_source(wl_source);
+                        if discrete != 0 {
+                            ptr.axis_discrete(axis, discrete);
+                        }
+                    }
                     ptr.axis(time, axis, value);
                 }
             }

@@ -655,6 +655,8 @@ impl CompositorState {
                         time_ms,
                         wl_pointer::Axis::VerticalScroll,
                         vertical,
+                        0,
+                        crate::ffi::types::AxisSource::Continuous,
                         client.as_ref(),
                     );
                 }
@@ -663,6 +665,8 @@ impl CompositorState {
                         time_ms,
                         wl_pointer::Axis::HorizontalScroll,
                         horizontal,
+                        0,
+                        crate::ffi::types::AxisSource::Continuous,
                         client.as_ref(),
                     );
                 }
