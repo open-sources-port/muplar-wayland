@@ -1719,6 +1719,18 @@ extern void WWNWindowInfoFree(CWindowInfo *info);
     contentRect = NSMakeRect(100, 100, defaultW, defaultH);
     shouldInjectResize = YES;
     shouldUpdateOutput = YES;
+  } else if (event->width > (uint32_t)(screenW * 0.85) ||
+             event->height > (uint32_t)(screenH * 0.85)) {
+    // Some clients initially inherit the compositor output size even though
+    // they are ordinary windowed applications.  On mixed-scale displays that
+    // size can be just below the full-screen test above, producing an enormous
+    // mostly blank window until the first manual resize.  Keep the initial
+    // content comfortably on-screen and immediately configure the client to
+    // the same dimensions.  Do not alter wl_output for ordinary toplevels.
+    CGFloat defaultW = fmin(1024, screenW * 0.75);
+    CGFloat defaultH = fmin(768, screenH * 0.75);
+    contentRect = NSMakeRect(100, 100, defaultW, defaultH);
+    shouldInjectResize = YES;
   } else {
     contentRect = NSMakeRect(100, 100, event->width, event->height);
     // For SSD windows the actual content area must be communicated back
@@ -1752,7 +1764,10 @@ extern void WWNWindowInfoFree(CWindowInfo *info);
   [window setTitle:title];
 
   // Create content view
-  WWNView *contentView = [[WWNView alloc] initWithFrame:contentRect];
+  WWNView *contentView =
+      [[WWNView alloc] initWithFrame:NSMakeRect(0, 0,
+                                               contentRect.size.width,
+                                               contentRect.size.height)];
   contentView.wantsLayer = YES;
   contentView.layer.backgroundColor = [[NSColor blackColor] CGColor];
   contentView.layer.contentsGravity = kCAGravityResize;
