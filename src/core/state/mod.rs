@@ -719,6 +719,7 @@ use crate::core::wayland::protocol::wlroots::wlr_data_control_unstable_v1::zwlr_
 pub enum SelectionSource {
     Wayland(wayland_server::protocol::wl_data_source::WlDataSource),
     Wlr(zwlr_data_control_source_v1::ZwlrDataControlSourceV1),
+    Host(String),
 }
 
 /// Collection of seat resources bound by clients.
@@ -1339,6 +1340,9 @@ pub struct CompositorState {
     
     /// Pending compositor events (pushed by protocol handlers)
     pub pending_compositor_events: Vec<CompositorEvent>,
+
+    /// Last copied text from clipboard selection (polled by Cocoa)
+    pub last_copied_text: std::sync::Arc<std::sync::Mutex<Option<String>>>,
     
     /// SHM pools for buffer pixel access ((client_id, pool_id) -> pool)
     pub shm_pools: HashMap<(ClientId, u32), ShmPool>,
@@ -1409,6 +1413,7 @@ impl CompositorState {
             seat_resources: HashMap::new(),
             
             pending_compositor_events: Vec::new(),
+            last_copied_text: std::sync::Arc::new(std::sync::Mutex::new(None)),
             shm_pools: HashMap::new(),
             regions: HashMap::new(),
             

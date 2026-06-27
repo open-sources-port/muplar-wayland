@@ -143,6 +143,9 @@ typedef struct {
 /// Wayland client via text-input-v3.
 - (void)textInputCommitString:(NSString *)text;
 
+/// Synchronize host clipboard text to the guest.
+- (void)setClipboardText:(NSString *)text;
+
 /// Send a preedit (composition preview) string via text-input-v3.
 - (void)textInputPreeditString:(NSString *)text
                    cursorBegin:(int32_t)cursorBegin

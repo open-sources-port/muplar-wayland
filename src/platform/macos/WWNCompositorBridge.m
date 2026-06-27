@@ -22,6 +22,7 @@ extern bool WWNCoreStop(void *core);
 extern bool WWNCoreIsRunning(const void *core);
 extern char *WWNCoreGetSocketPath(const void *core);
 extern char *WWNCoreGetSocketName(const void *core);
+extern char *WWNCorePollCopiedText(void *core);
 extern void WWNStringFree(char *s);
 extern bool WWNCoreProcessEvents(void *core);
 extern void WWNCoreSetOutputSize(void *core, uint32_t w, uint32_t h, float s);
@@ -43,6 +44,7 @@ extern void WWNCoreInjectPointerAxis(void *core, uint64_t window_id,
                                      uint32_t axis, double value,
                                      uint32_t timestamp_ms);
 extern void WWNCoreTextInputCommit(void *core, const char *text);
+extern void WWNCoreSetClipboardText(void *core, const char *text);
 extern void WWNCoreTextInputPreedit(void *core, const char *text,
                                     int32_t cursor_begin, int32_t cursor_end);
 extern void WWNCoreTextInputDeleteSurrounding(void *core, uint32_t before,
@@ -616,6 +618,21 @@ extern void WWNRenderSceneFree(CRenderScene *scene);
     if (windowEvents.count > 0) {
       WWNLog("TICK", @"Collected %lu window event(s) this tick",
              (unsigned long)windowEvents.count);
+    }
+
+    // Poll clipboard updates from Rust
+    char *copiedText = WWNCorePollCopiedText(self->_rustCore);
+    if (copiedText != NULL) {
+      NSString *textStr = [NSString stringWithUTF8String:copiedText];
+      WWNStringFree(copiedText);
+      if (textStr && textStr.length > 0) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+          NSPasteboard *pasteboard = [NSPasteboard generalPasteboard];
+          [pasteboard clearContents];
+          [pasteboard setString:textStr forType:NSPasteboardTypeString];
+          WWNLog("CLIPBOARD", @"Synchronized clipboard text to macOS: %@", textStr);
+        });
+      }
     }
 
     // 3. Process pending buffers: create CGImages / lookup IOSurfaces and
@@ -1206,6 +1223,19 @@ extern void WWNCoreInject_touch_frame(void *core);
   }
   [self _dispatchToRust:^{
     WWNCoreTextInputCommit(self->_rustCore, utf8);
+  }];
+}
+
+- (void)setClipboardText:(NSString *)text {
+  if (!_rustCore || !text) {
+    return;
+  }
+  const char *utf8 = [text UTF8String];
+  if (!utf8) {
+    return;
+  }
+  [self _dispatchToRust:^{
+    WWNCoreSetClipboardText(self->_rustCore, utf8);
   }];
 }
 

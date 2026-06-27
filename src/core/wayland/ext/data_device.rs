@@ -374,6 +374,19 @@ impl Dispatch<WlDataOffer, ()> for CompositorState {
                                 tracing::debug!("Forwarded receive to wl_data_source {}", source_id);
                             }
                         }
+                    } else {
+                        // Synthetic host-to-guest selection source
+                        if let Some(crate::core::state::SelectionSource::Host(text)) = &state.seat.current_selection {
+                            use std::io::Write;
+                            use std::os::unix::io::{FromRawFd, AsRawFd};
+                            let fd_raw = fd.as_raw_fd();
+                            let dup_fd = unsafe { libc::dup(fd_raw) };
+                            if dup_fd >= 0 {
+                                let mut file = unsafe { std::fs::File::from_raw_fd(dup_fd) };
+                                let _ = file.write_all(text.as_bytes());
+                                let _ = file.flush();
+                            }
+                        }
                     }
                 }
                 drop(fd);

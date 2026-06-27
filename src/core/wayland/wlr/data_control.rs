@@ -206,6 +206,17 @@ impl Dispatch<zwlr_data_control_offer_v1::ZwlrDataControlOfferV1, ()> for Compos
                             src.send(mime_type, fd.as_fd());
                             tracing::debug!("Forwarded data_control receive to wlr source");
                         }
+                        crate::core::state::SelectionSource::Host(text) => {
+                            use std::io::Write;
+                            use std::os::unix::io::{FromRawFd, AsRawFd};
+                            let fd_raw = fd.as_raw_fd();
+                            let dup_fd = unsafe { libc::dup(fd_raw) };
+                            if dup_fd >= 0 {
+                                let mut file = unsafe { std::fs::File::from_raw_fd(dup_fd) };
+                                let _ = file.write_all(text.as_bytes());
+                                let _ = file.flush();
+                            }
+                        }
                     }
                 }
                 drop(fd);

@@ -49,23 +49,31 @@ pub extern "C" fn WWNCoreStart(
 /// Stop the compositor
 #[no_mangle]
 pub extern "C" fn WWNCoreStop(core: *mut WWNCore) -> bool {
-    if core.is_null() {
-        return false;
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        if core.is_null() {
+            return false;
+        }
+        let core = unsafe { &*core };
+        core.stop().is_ok()
+    })) {
+        Ok(stopped) => stopped,
+        Err(_) => false,
     }
-    
-    let core = unsafe { &*core };
-    core.stop().is_ok()
 }
 
 /// Check if compositor is running
 #[no_mangle]
 pub extern "C" fn WWNCoreIsRunning(core: *const WWNCore) -> bool {
-    if core.is_null() {
-        return false;
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        if core.is_null() {
+            return false;
+        }
+        let core = unsafe { &*core };
+        core.is_running()
+    })) {
+        Ok(running) => running,
+        Err(_) => false,
     }
-    
-    let core = unsafe { &*core };
-    core.is_running()
 }
 
 /// Get socket path (returns malloc'd string, caller must free)
@@ -854,6 +862,22 @@ pub extern "C" fn WWNCoreTextInputCommit(
     }));
 }
 
+/// Set host clipboard text in the compositor
+#[no_mangle]
+pub extern "C" fn WWNCoreSetClipboardText(
+    core: *mut WWNCore,
+    text: *const c_char
+) {
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        if core.is_null() || text.is_null() { return; }
+        let core = unsafe { &*core };
+        let s = unsafe { CStr::from_ptr(text) };
+        if let Ok(text_str) = s.to_str() {
+            core.set_clipboard_text(text_str);
+        }
+    }));
+}
+
 /// Send a preedit (composition preview) string via text-input-v3.
 ///
 /// `cursor_begin` and `cursor_end` are byte offsets into `text`.
@@ -1471,3 +1495,25 @@ pub extern "C" fn WWNCorePopPendingGammaRestore(core: *mut WWNCore) -> u32 {
         }
     }
 }
+
+/// Poll last copied text from clipboard (returns malloc'd string, or NULL; caller must free)
+#[no_mangle]
+pub extern "C" fn WWNCorePollCopiedText(core: *mut WWNCore) -> *mut c_char {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        if core.is_null() {
+            return std::ptr::null_mut();
+        }
+        let core = unsafe { &*core };
+        if let Some(text) = core.poll_copied_text() {
+            CString::new(text).ok()
+                .map(|s| s.into_raw())
+                .unwrap_or(std::ptr::null_mut())
+        } else {
+            std::ptr::null_mut()
+        }
+    })) {
+        Ok(ptr) => ptr,
+        Err(_) => std::ptr::null_mut()
+    }
+}
+

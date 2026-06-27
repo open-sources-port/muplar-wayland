@@ -29,12 +29,11 @@ fn validate_regions(regions: &Option<Vec<DamageRegion>>, width: i32, height: i32
 /// Performs the atomic update of a surface state.
 /// Returns the ID of the buffer that was replaced and should be released, if any.
 pub fn apply_commit(pending: &mut SurfaceState, current: &mut SurfaceState) -> Option<u32> {
-    // Check if buffer is changing
-    let old_buffer = if pending.buffer_id != current.buffer_id {
-        current.buffer_id
-    } else {
-        None
-    };
+    // In Wayland, when a new buffer is committed, the previous buffer is released.
+    // We should return current.buffer_id as the old buffer even if it's the same ID,
+    // to ensure single-buffered clients get release events and double-buffered clients
+    // don't have their active buffer released immediately in notify_frame_presented.
+    let old_buffer = current.buffer_id;
 
     // 1. Update buffer if pending
     current.buffer = pending.buffer.clone();

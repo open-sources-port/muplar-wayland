@@ -122,6 +122,66 @@
   return YES;
 }
 
+- (void)performCopyAction {
+  // Clear modifier state so the client doesn't see Super modifier
+  [[WWNCompositorBridge sharedBridge] injectModifiersWithDepressed:0 latched:0 locked:0 group:0];
+  
+  uint32_t ts = (uint32_t)([[NSDate date] timeIntervalSince1970] * 1000.0);
+  WWNCompositorBridge *bridge = [WWNCompositorBridge sharedBridge];
+  
+  // Press Control (29)
+  [bridge injectKeyWithKeycode:29 pressed:YES timestamp:ts];
+  // Press Shift (42)
+  [bridge injectKeyWithKeycode:42 pressed:YES timestamp:ts];
+  // Press C (46)
+  [bridge injectKeyWithKeycode:46 pressed:YES timestamp:ts];
+  
+  // Release C (46)
+  [bridge injectKeyWithKeycode:46 pressed:NO timestamp:ts];
+  // Release Shift (42)
+  [bridge injectKeyWithKeycode:42 pressed:NO timestamp:ts];
+  // Release Control (29)
+  [bridge injectKeyWithKeycode:29 pressed:NO timestamp:ts];
+}
+
+- (void)performPasteAction {
+  NSPasteboard *pasteboard = [NSPasteboard generalPasteboard];
+  NSString *str = [pasteboard stringForType:NSPasteboardTypeString];
+  if (str.length > 0) {
+    // 1. Sync macOS clipboard to the Rust compositor first
+    [[WWNCompositorBridge sharedBridge] setClipboardText:str];
+    
+    // 2. Inject Control+Shift+V keyboard shortcut into the compositor
+    // Clear modifier state first so the client doesn't see Super (Command)
+    [[WWNCompositorBridge sharedBridge] injectModifiersWithDepressed:0 latched:0 locked:0 group:0];
+    
+    uint32_t ts = (uint32_t)([[NSDate date] timeIntervalSince1970] * 1000.0);
+    WWNCompositorBridge *bridge = [WWNCompositorBridge sharedBridge];
+    
+    // Press Control (29)
+    [bridge injectKeyWithKeycode:29 pressed:YES timestamp:ts];
+    // Press Shift (42)
+    [bridge injectKeyWithKeycode:42 pressed:YES timestamp:ts];
+    // Press V (47)
+    [bridge injectKeyWithKeycode:47 pressed:YES timestamp:ts];
+    
+    // Release V (47)
+    [bridge injectKeyWithKeycode:47 pressed:NO timestamp:ts];
+    // Release Shift (42)
+    [bridge injectKeyWithKeycode:42 pressed:NO timestamp:ts];
+    // Release Control (29)
+    [bridge injectKeyWithKeycode:29 pressed:NO timestamp:ts];
+  }
+}
+
+- (void)copy:(id)sender {
+  [self performCopyAction];
+}
+
+- (void)paste:(id)sender {
+  [self performPasteAction];
+}
+
 // Intercept all key equivalents (Ctrl+C, Ctrl+Z, Ctrl+X, Cmd+* etc.)
 // so they are delivered to keyDown: instead of being consumed by the
 // macOS menu bar. This is critical for terminal emulators where Ctrl+C
@@ -140,6 +200,14 @@
     }
     if ([chars isEqualToString:@"m"] || [chars isEqualToString:@"M"]) {
       return NO; // Let macOS handle Cmd+M (Minimize)
+    }
+    if ([chars isEqualToString:@"c"] || [chars isEqualToString:@"C"]) {
+      [self performCopyAction];
+      return YES;
+    }
+    if ([chars isEqualToString:@"v"] || [chars isEqualToString:@"V"]) {
+      [self performPasteAction];
+      return YES;
     }
   }
 
@@ -235,6 +303,36 @@
                             button:0x111 // BTN_RIGHT
                            pressed:NO
                          timestamp:(uint32_t)(event.timestamp * 1000)];
+}
+
+- (void)scrollWheel:(NSEvent *)event {
+  double dx = event.scrollingDeltaX;
+  double dy = event.scrollingDeltaY;
+  
+  if (dx != 0) {
+    double val = -dx;
+    if (!event.hasPreciseScrollingDeltas) {
+      val *= 12.0;
+    }
+    [[WWNCompositorBridge sharedBridge]
+        injectPointerAxisForWindow:[self wwnWindowId]
+                              axis:1 // PointerAxis::Horizontal
+                             value:val
+                          discrete:0
+                         timestamp:(uint32_t)(event.timestamp * 1000)];
+  }
+  if (dy != 0) {
+    double val = -dy;
+    if (!event.hasPreciseScrollingDeltas) {
+      val *= 12.0;
+    }
+    [[WWNCompositorBridge sharedBridge]
+        injectPointerAxisForWindow:[self wwnWindowId]
+                              axis:0 // PointerAxis::Vertical
+                             value:val
+                          discrete:0
+                         timestamp:(uint32_t)(event.timestamp * 1000)];
+  }
 }
 
 // Helper to translate macOS keycodes to XKB/Evdev keycodes (offset by 8)

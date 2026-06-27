@@ -291,7 +291,10 @@ impl WawonaCore {
     
     /// Stop the compositor
     pub fn stop(&self) -> Result<()> {
-        let mut compositor_guard = self.compositor.lock().unwrap();
+        let mut compositor_guard = match self.compositor.lock() {
+            Ok(g) => g,
+            Err(e) => e.into_inner(),
+        };
         
         let compositor = compositor_guard.as_mut()
             .ok_or(CompositorError::NotStarted)?;
@@ -302,18 +305,21 @@ impl WawonaCore {
         *compositor_guard = None;
         
         // Clear caches
-        self.ffi_windows.write().unwrap().clear();
-        self.ffi_surfaces.write().unwrap().clear();
-        self.ffi_clients.write().unwrap().clear();
-        self.textures.write().unwrap().clear();
-        self.pending_window_events.write().unwrap().clear();
-        self.pending_client_events.write().unwrap().clear();
-        self.pending_buffers.write().unwrap().clear();
-        self.pending_buffers.write().unwrap().clear();
-        self.pending_redraws.write().unwrap().clear();
+        if let Ok(mut w) = self.ffi_windows.write() { w.clear(); }
+        if let Ok(mut s) = self.ffi_surfaces.write() { s.clear(); }
+        if let Ok(mut c) = self.ffi_clients.write() { c.clear(); }
+        if let Ok(mut t) = self.textures.write() { t.clear(); }
+        if let Ok(mut we) = self.pending_window_events.write() { we.clear(); }
+        if let Ok(mut ce) = self.pending_client_events.write() { ce.clear(); }
+        if let Ok(mut pb) = self.pending_buffers.write() { pb.clear(); }
+        if let Ok(mut pr) = self.pending_redraws.write() { pr.clear(); }
         
         // Stop IPC server
-        *self.ipc_server.lock().unwrap() = None;
+        if let Ok(mut ipc) = self.ipc_server.lock() {
+            *ipc = None;
+        } else if let Err(e) = self.ipc_server.lock() {
+            *e.into_inner() = None;
+        }
         
         crate::wlog!(crate::util::logging::FFI, "Compositor stopped");
         Ok(())
@@ -321,24 +327,33 @@ impl WawonaCore {
     
     /// Check if compositor is running
     pub fn is_running(&self) -> bool {
-        self.compositor.lock().unwrap()
-            .as_ref()
+        let guard = match self.compositor.lock() {
+            Ok(g) => g,
+            Err(e) => e.into_inner(),
+        };
+        guard.as_ref()
             .map(|c| c.is_running())
             .unwrap_or(false)
     }
     
     /// Get the Wayland socket path
     pub fn get_socket_path(&self) -> String {
-        self.compositor.lock().unwrap()
-            .as_ref()
+        let guard = match self.compositor.lock() {
+            Ok(g) => g,
+            Err(e) => e.into_inner(),
+        };
+        guard.as_ref()
             .map(|c| c.socket_path().to_string())
             .unwrap_or_default()
     }
     
     /// Get the Wayland socket name
     pub fn get_socket_name(&self) -> String {
-        self.compositor.lock().unwrap()
-            .as_ref()
+        let guard = match self.compositor.lock() {
+            Ok(g) => g,
+            Err(e) => e.into_inner(),
+        };
+        guard.as_ref()
             .map(|c| c.socket_name().to_string())
             .unwrap_or_default()
     }
@@ -1326,6 +1341,16 @@ impl WawonaCore {
         std::mem::take(&mut *self.pending_window_events.write().unwrap())
     }
     
+    /// Poll last copied text from clipboard (returns string, or None)
+    pub fn poll_copied_text(&self) -> Option<String> {
+        if !self.is_running() {
+            return None;
+        }
+        let state = self.state.read().unwrap();
+        let mut guard = state.last_copied_text.lock().unwrap();
+        guard.take()
+    }
+    
     /// Get pending client events (platform polls for these)
     pub fn poll_client_events(&self) -> Vec<ClientEvent> {
         std::mem::take(&mut *self.pending_client_events.write().unwrap())
@@ -1429,10 +1454,12 @@ impl WawonaCore {
 
         if let Some(buf_id) = buffer_id {
             if let Some(cid) = client_id {
-                let buffer_id_u32 = buf_id.id as u32;
-                state.release_buffer(cid, buffer_id_u32);
+                let _buffer_id_u32 = buf_id.id as u32;
+                // Note: We no longer release the active buffer immediately here.
+                // It is instead queued on subsequent commits and released via flush_buffer_releases,
+                // which prevents visual flashing/flickering.
                 crate::wlog!(crate::util::logging::FFI,
-                    "FramePresented: surf={} buf={} released=true callbacks_flushed={} pending_releases_before={}",
+                    "FramePresented: surf={} buf={} active_buffer_kept=true callbacks_flushed={} pending_releases_before={}",
                     surface_id.id, buf_id.id, has_callbacks, pending_releases);
             } else {
                 crate::wlog!(crate::util::logging::FFI,
@@ -2070,6 +2097,19 @@ impl WawonaCore {
 
     /// Commit a string through text-input-v3 to the focused Wayland client.
     ///
+    /// Set host clipboard text in the compositor
+    pub fn set_clipboard_text(&self, text: &str) {
+        let compositor_guard = match self.compositor.lock() {
+            Ok(g) => g,
+            Err(e) => e.into_inner(),
+        };
+        if let Some(comp) = compositor_guard.as_ref() {
+            let dh = comp.display_handle();
+            let mut state = self.state.write().unwrap();
+            state.set_clipboard_source(&dh, Some(crate::core::state::SelectionSource::Host(text.to_string())));
+        }
+    }
+
     /// This is the primary path for emoji, composed text, and IME output
     /// on Apple and Android platforms.  The string must be valid UTF-8.
     pub fn text_input_commit_string(&self, text: &str) {

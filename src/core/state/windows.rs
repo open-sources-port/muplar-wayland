@@ -197,26 +197,93 @@ impl CompositorState {
                      let (source_id, source_dnd_actions) = match src {
                          SelectionSource::Wayland(s) => {
                              let id = s.id().protocol_id();
-                            let actions = self.data.sources.get(&id)
-                                .map(|d| d.dnd_actions).unwrap_or(DndAction::empty());
+                             let actions = self.data.sources.get(&id)
+                                 .map(|d| d.dnd_actions).unwrap_or(DndAction::empty());
                              if let Some(data) = self.data.sources.get(&id) {
                                  for mime in &data.mime_types {
                                      offer.offer(mime.clone());
+                                 }
+                                 
+                                 // Async clipboard sync to host
+                                 let has_text = data.mime_types.iter().any(|m| m.contains("text/plain") || m == "UTF8_STRING" || m == "STRING");
+                                 if has_text {
+                                     let mut fds = [0; 2];
+                                     unsafe {
+                                         if libc::pipe(fds.as_mut_ptr()) == 0 {
+                                             use std::os::unix::io::FromRawFd;
+                                             use std::os::unix::io::AsFd;
+                                             let read_fd = std::os::unix::io::OwnedFd::from_raw_fd(fds[0]);
+                                             let write_fd = std::os::unix::io::OwnedFd::from_raw_fd(fds[1]);
+                                             
+                                             s.send("text/plain".to_string(), write_fd.as_fd());
+                                             drop(write_fd); // Must close write end so reader receives EOF
+                                             
+                                             let clipboard_mutex = self.last_copied_text.clone();
+                                             std::thread::spawn(move || {
+                                                 use std::io::Read;
+                                                 let mut file = std::fs::File::from(read_fd);
+                                                 let mut text = String::new();
+                                                 if file.read_to_string(&mut text).is_ok() {
+                                                     if !text.is_empty() {
+                                                         let mut guard = clipboard_mutex.lock().unwrap();
+                                                         *guard = Some(text);
+                                                     }
+                                                 }
+                                             });
+                                         }
+                                     }
                                  }
                              }
                              (Some(id), actions)
                          }
                          SelectionSource::Wlr(s) => {
                              let id = s.id().protocol_id();
-                            let actions = self.wlr.data_control.sources.get(&id)
-                                .map(|d| d.dnd_actions)
-                                .unwrap_or(DndAction::empty());
+                             let actions = self.wlr.data_control.sources.get(&id)
+                                 .map(|d| d.dnd_actions)
+                                 .unwrap_or(DndAction::empty());
                              if let Some(data) = self.wlr.data_control.sources.get(&id) {
                                  for mime in &data.mime_types {
                                      offer.offer(mime.clone());
                                  }
+                                 
+                                 // Async clipboard sync to host
+                                 let has_text = data.mime_types.iter().any(|m| m.contains("text/plain") || m == "UTF8_STRING" || m == "STRING");
+                                 if has_text {
+                                     let mut fds = [0; 2];
+                                     unsafe {
+                                         if libc::pipe(fds.as_mut_ptr()) == 0 {
+                                             use std::os::unix::io::FromRawFd;
+                                             use std::os::unix::io::AsFd;
+                                             let read_fd = std::os::unix::io::OwnedFd::from_raw_fd(fds[0]);
+                                             let write_fd = std::os::unix::io::OwnedFd::from_raw_fd(fds[1]);
+                                             
+                                             s.send("text/plain".to_string(), write_fd.as_fd());
+                                             drop(write_fd);
+                                             
+                                             let clipboard_mutex = self.last_copied_text.clone();
+                                             std::thread::spawn(move || {
+                                                 use std::io::Read;
+                                                 let mut file = std::fs::File::from(read_fd);
+                                                 let mut text = String::new();
+                                                 if file.read_to_string(&mut text).is_ok() {
+                                                     if !text.is_empty() {
+                                                         let mut guard = clipboard_mutex.lock().unwrap();
+                                                         *guard = Some(text);
+                                                     }
+                                                 }
+                                             });
+                                         }
+                                     }
+                                 }
                              }
                              (Some(id), actions)
+                         }
+                         SelectionSource::Host(_text) => {
+                             offer.offer("text/plain;charset=utf-8".to_string());
+                             offer.offer("text/plain".to_string());
+                             offer.offer("UTF8_STRING".to_string());
+                             offer.offer("STRING".to_string());
+                             (None, DndAction::empty())
                          }
                      };
                      if offer.version() >= 3 {
