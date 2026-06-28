@@ -34,6 +34,7 @@
     _window.opaque = NO;
     _window.level = NSFloatingWindowLevel;
     _window.releasedWhenClosed = NO;
+    _window.animationBehavior = NSWindowAnimationBehaviorNone;
 
     WWNView *v = [[WWNView alloc] initWithFrame:_window.contentView.bounds];
     v.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;

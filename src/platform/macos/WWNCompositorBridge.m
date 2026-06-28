@@ -512,10 +512,18 @@ extern void WWNRenderSceneFree(CRenderScene *scene);
   if (windowCount > 0) {
     WWNLog("BRIDGE", @"Closing %lu window(s)...", (unsigned long)windowCount);
 #if !TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
+    // Popup windows are also indexed in _windows for rendering. Dismiss them
+    // through their sole owner before walking the remaining toplevels.
+    for (id<WWNPopupHost> popup in [[_popups allValues] copy])
+      [popup dismiss];
+    [_popups removeAllObjects];
+
     for (NSNumber *key in [_windows allKeys]) {
-      WWNWindow *window = [_windows objectForKey:key];
-      [window orderOut:nil]; // Hide window
-      [window close];        // Close window
+      NSWindow *window = [_windows objectForKey:key];
+      window.animationBehavior = NSWindowAnimationBehaviorNone;
+      [window setDelegate:nil];
+      [window orderOut:nil];
+      [window setContentView:nil];
     }
 #endif
     [_windows removeAllObjects];
@@ -2019,6 +2027,18 @@ extern void WWNWindowInfoFree(CWindowInfo *info);
     WWNLog("BRIDGE", @"Removed iOS view for window %llu", event->window_id);
   }
 #else
+  // Popup host windows are also present in _windows so render layers can find
+  // them. They must be removed only through WWNPopupHost; treating one as a
+  // toplevel first releases its content/animation state twice.
+  id<WWNPopupHost> popupHost = [_popups objectForKey:@(event->window_id)];
+  if (popupHost) {
+    [popupHost dismiss];
+    [_popups removeObjectForKey:@(event->window_id)];
+    [_windows removeObjectForKey:@(event->window_id)];
+    WWNLog("BRIDGE", @"Destroyed popup %llu", event->window_id);
+    return;
+  }
+
   NSWindow *window = [_windows objectForKey:@(event->window_id)];
   if (window) {
     @try {
@@ -2157,10 +2177,12 @@ extern void WWNWindowInfoFree(CWindowInfo *info);
     [_popups setObject:popup forKey:@(event->window_id)];
     _windows[@(event->window_id)] = ((WWNPopupWindow *)popup).window;
 
-    // Handle dismissal
+    // The C event belongs to the polling batch and is freed after this method
+    // returns. Capture the scalar ID, not the transient event pointer.
+    const uint64_t popupWindowId = event->window_id;
     __unsafe_unretained typeof(self) weakSelf = self;
     popup.onDismiss = ^{
-      [weakSelf handlePopupDismissed:event->window_id];
+      [weakSelf handlePopupDismissed:popupWindowId];
     };
 
     // Compute screen point for popup top-left (Wayland x,y is parent-relative)

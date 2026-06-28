@@ -268,6 +268,9 @@
 }
 
 - (void)mouseDown:(NSEvent *)event {
+  // Trackpads can deliver a click without a preceding mouseMoved event. Keep
+  // the Wayland pointer focus and local coordinates current before the button.
+  [self mouseMoved:event];
   if ([self.window isKindOfClass:[WWNWindow class]]) {
     ((WWNWindow *)self.window).lastMouseDownEvent = event;
   }
@@ -279,6 +282,7 @@
 }
 
 - (void)mouseUp:(NSEvent *)event {
+  [self mouseMoved:event];
   if ([self.window isKindOfClass:[WWNWindow class]]) {
     ((WWNWindow *)self.window).lastMouseDownEvent = nil;
   }
@@ -290,6 +294,7 @@
 }
 
 - (void)rightMouseDown:(NSEvent *)event {
+  [self mouseMoved:event];
   [[WWNCompositorBridge sharedBridge]
       injectPointerButtonForWindow:[self wwnWindowId]
                             button:0x111 // BTN_RIGHT
@@ -298,6 +303,7 @@
 }
 
 - (void)rightMouseUp:(NSEvent *)event {
+  [self mouseMoved:event];
   [[WWNCompositorBridge sharedBridge]
       injectPointerButtonForWindow:[self wwnWindowId]
                             button:0x111 // BTN_RIGHT
@@ -806,6 +812,7 @@ static uint32_t MacosToXkbKeycode(unsigned short macCode) {
                               defer:flag];
   if (self) {
     [self setDelegate:self];
+    self.animationBehavior = NSWindowAnimationBehaviorNone;
   }
   return self;
 }
