@@ -19,6 +19,13 @@
   // Text Assist proxy buffer for autocorrect / text replacement context
   NSMutableString *textBuffer_;
   BOOL textAssistEnabled_;
+
+  // AppKit can produce mouseMoved events much faster than the compositor can
+  // present frames. Keep hover traffic from building an unbounded queue ahead
+  // of button events.
+  NSTimeInterval lastPointerMotionTimestamp_;
+  NSPoint lastPointerMotionLocation_;
+  BOOL hasPointerMotionLocation_;
 }
 
 - (instancetype)initWithFrame:(NSRect)frameRect {
@@ -252,25 +259,41 @@
                         timestamp:(uint32_t)(event.timestamp * 1000)];
 }
 
-- (void)mouseMoved:(NSEvent *)event {
+- (void)sendPointerMotion:(NSEvent *)event force:(BOOL)force {
   NSPoint loc = [self convertPoint:[event locationInWindow] fromView:nil];
-  double y = loc.y;
+  NSTimeInterval timestamp = event.timestamp;
+
+  if (!force && hasPointerMotionLocation_) {
+    BOOL unchanged = NSEqualPoints(loc, lastPointerMotionLocation_);
+    BOOL tooSoon = timestamp - lastPointerMotionTimestamp_ < (1.0 / 60.0);
+    if (unchanged || tooSoon) {
+      return;
+    }
+  }
+
+  lastPointerMotionTimestamp_ = timestamp;
+  lastPointerMotionLocation_ = loc;
+  hasPointerMotionLocation_ = YES;
 
   [[WWNCompositorBridge sharedBridge]
       injectPointerMotionForWindow:[self wwnWindowId]
                                  x:loc.x
-                                 y:y
-                         timestamp:(uint32_t)(event.timestamp * 1000)];
+                                 y:loc.y
+                         timestamp:(uint32_t)(timestamp * 1000)];
+}
+
+- (void)mouseMoved:(NSEvent *)event {
+  [self sendPointerMotion:event force:NO];
 }
 
 - (void)mouseDragged:(NSEvent *)event {
-  [self mouseMoved:event];
+  [self sendPointerMotion:event force:NO];
 }
 
 - (void)mouseDown:(NSEvent *)event {
   // Trackpads can deliver a click without a preceding mouseMoved event. Keep
   // the Wayland pointer focus and local coordinates current before the button.
-  [self mouseMoved:event];
+  [self sendPointerMotion:event force:YES];
   if ([self.window isKindOfClass:[WWNWindow class]]) {
     ((WWNWindow *)self.window).lastMouseDownEvent = event;
   }
@@ -282,7 +305,7 @@
 }
 
 - (void)mouseUp:(NSEvent *)event {
-  [self mouseMoved:event];
+  [self sendPointerMotion:event force:YES];
   if ([self.window isKindOfClass:[WWNWindow class]]) {
     ((WWNWindow *)self.window).lastMouseDownEvent = nil;
   }
@@ -294,7 +317,7 @@
 }
 
 - (void)rightMouseDown:(NSEvent *)event {
-  [self mouseMoved:event];
+  [self sendPointerMotion:event force:YES];
   [[WWNCompositorBridge sharedBridge]
       injectPointerButtonForWindow:[self wwnWindowId]
                             button:0x111 // BTN_RIGHT
@@ -303,7 +326,7 @@
 }
 
 - (void)rightMouseUp:(NSEvent *)event {
-  [self mouseMoved:event];
+  [self sendPointerMotion:event force:YES];
   [[WWNCompositorBridge sharedBridge]
       injectPointerButtonForWindow:[self wwnWindowId]
                             button:0x111 // BTN_RIGHT
