@@ -1516,4 +1516,3 @@ pub extern "C" fn WWNCorePollCopiedText(core: *mut WWNCore) -> *mut c_char {
         Err(_) => std::ptr::null_mut()
     }
 }
-

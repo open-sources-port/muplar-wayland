@@ -205,8 +205,13 @@ impl CompositorState {
                                  }
                                  
                                  // Async clipboard sync to host
-                                 let has_text = data.mime_types.iter().any(|m| m.contains("text/plain") || m == "UTF8_STRING" || m == "STRING");
-                                 if has_text {
+                                 let text_mime = data.mime_types.iter()
+                                     .find(|m| m.as_str() == "text/plain;charset=utf-8")
+                                     .or_else(|| data.mime_types.iter().find(|m| m.as_str() == "text/plain"))
+                                     .or_else(|| data.mime_types.iter().find(|m| m.as_str() == "UTF8_STRING"))
+                                     .or_else(|| data.mime_types.iter().find(|m| m.as_str() == "STRING"))
+                                     .cloned();
+                                 if let Some(text_mime) = text_mime {
                                      let mut fds = [0; 2];
                                      unsafe {
                                          if libc::pipe(fds.as_mut_ptr()) == 0 {
@@ -215,7 +220,7 @@ impl CompositorState {
                                              let read_fd = std::os::unix::io::OwnedFd::from_raw_fd(fds[0]);
                                              let write_fd = std::os::unix::io::OwnedFd::from_raw_fd(fds[1]);
                                              
-                                             s.send("text/plain".to_string(), write_fd.as_fd());
+                                             s.send(text_mime, write_fd.as_fd());
                                              drop(write_fd); // Must close write end so reader receives EOF
                                              
                                              let clipboard_mutex = self.last_copied_text.clone();
@@ -247,8 +252,13 @@ impl CompositorState {
                                  }
                                  
                                  // Async clipboard sync to host
-                                 let has_text = data.mime_types.iter().any(|m| m.contains("text/plain") || m == "UTF8_STRING" || m == "STRING");
-                                 if has_text {
+                                 let text_mime = data.mime_types.iter()
+                                     .find(|m| m.as_str() == "text/plain;charset=utf-8")
+                                     .or_else(|| data.mime_types.iter().find(|m| m.as_str() == "text/plain"))
+                                     .or_else(|| data.mime_types.iter().find(|m| m.as_str() == "UTF8_STRING"))
+                                     .or_else(|| data.mime_types.iter().find(|m| m.as_str() == "STRING"))
+                                     .cloned();
+                                 if let Some(text_mime) = text_mime {
                                      let mut fds = [0; 2];
                                      unsafe {
                                          if libc::pipe(fds.as_mut_ptr()) == 0 {
@@ -257,7 +267,7 @@ impl CompositorState {
                                              let read_fd = std::os::unix::io::OwnedFd::from_raw_fd(fds[0]);
                                              let write_fd = std::os::unix::io::OwnedFd::from_raw_fd(fds[1]);
                                              
-                                             s.send("text/plain".to_string(), write_fd.as_fd());
+                                             s.send(text_mime, write_fd.as_fd());
                                              drop(write_fd);
                                              
                                              let clipboard_mutex = self.last_copied_text.clone();

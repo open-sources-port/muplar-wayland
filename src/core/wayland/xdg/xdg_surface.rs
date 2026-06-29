@@ -246,24 +246,21 @@ impl Dispatch<xdg_surface::XdgSurface, u32> for CompositorState {
                                 surface_data.pending_serials.drain(..=pos);
                             } else {
                                 let pending = surface_data.pending_serial;
-                                resource.post_error(
-                                    xdg_surface::Error::InvalidSerial,
-                                    format!(
-                                        "ack_configure serial {} is not pending; newest pending serial {}",
-                                        serial, pending
-                                    ),
+                                crate::wlog!(
+                                    crate::util::logging::COMPOSITOR,
+                                    "Accepting untracked ack_configure serial {} (newest tracked {})",
+                                    serial,
+                                    pending
                                 );
-                                return;
+                                surface_data.pending_serials.clear();
                             }
                         } else if surface_data.pending_serial != 0 && serial != surface_data.pending_serial {
-                            resource.post_error(
-                                xdg_surface::Error::InvalidSerial,
-                                format!(
-                                    "ack_configure serial {} does not match pending serial {}",
-                                    serial, surface_data.pending_serial
-                                ),
+                            crate::wlog!(
+                                crate::util::logging::COMPOSITOR,
+                                "Accepting untracked ack_configure serial {} (tracked {})",
+                                serial,
+                                surface_data.pending_serial
                             );
-                            return;
                         }
                         surface_data.configured = true;
                         surface_data.pending_serial = surface_data.pending_serials.last().copied().unwrap_or(0);

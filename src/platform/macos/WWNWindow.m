@@ -591,24 +591,11 @@ static uint32_t MacosToXkbKeycode(unsigned short macCode) {
   uint32_t depressed = 0;
   uint32_t locked = 0;
 
-  if (flags & NSEventModifierFlagShift) {
-    depressed |= 1;
-  }
-  if (flags & NSEventModifierFlagControl) {
-    depressed |= 4;
-  }
-  if (flags & NSEventModifierFlagOption) {
-    depressed |= 8;
-  }
-  if (flags & NSEventModifierFlagCommand) {
-    depressed |= 64;
-  }
-  if (flags & NSEventModifierFlagCapsLock) {
-    locked |= 2;
-  }
-
-  WWNLog("INPUT", @"Injecting modifiers state: depressed=%u locked=%u",
-         depressed, locked);
+  if (flags & NSEventModifierFlagShift) depressed |= 1;
+  if (flags & NSEventModifierFlagControl) depressed |= 4;
+  if (flags & NSEventModifierFlagOption) depressed |= 8;
+  if (flags & NSEventModifierFlagCommand) depressed |= 64;
+  if (flags & NSEventModifierFlagCapsLock) locked |= 2;
 
   [[WWNCompositorBridge sharedBridge] injectModifiersWithDepressed:depressed
                                                            latched:0

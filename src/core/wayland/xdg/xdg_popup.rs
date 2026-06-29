@@ -105,10 +105,12 @@ impl Dispatch<xdg_popup::XdgPopup, u32> for CompositorState {
                         .get(&(client_id.clone(), popup_id))
                         .map(|p| p.xdg_surface_id)
                         .unwrap_or(sid);
-                     if let Some(surface_data) = state.xdg.surfaces.get(&(client_id, xdg_surface_id)) {
-                        if let Some(surface_resource) = &surface_data.resource {
+                     if let Some(surface_data) = state.xdg.surfaces.get_mut(&(client_id, xdg_surface_id)) {
+                         surface_data.pending_serial = serial;
+                         surface_data.pending_serials.push(serial);
+                         if let Some(surface_resource) = &surface_data.resource {
                              surface_resource.configure(serial);
-                        }
+                         }
                     }
                 }
             }
@@ -116,4 +118,3 @@ impl Dispatch<xdg_popup::XdgPopup, u32> for CompositorState {
         }
     }
 }
-

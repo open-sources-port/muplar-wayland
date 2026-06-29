@@ -246,13 +246,10 @@ impl Dispatch<WlDataDevice, ()> for CompositorState {
 
                 if let Some(source_id) = source_id {
                     if let Some(source_data) = state.data.sources.get_mut(&source_id) {
-                        if source_data.used {
-                            resource.post_error(
-                                wl_data_device::Error::UsedSource,
-                                format!("data source {} already used", source_id),
-                            );
-                            return;
-                        }
+                        // Numeric resource IDs are client-local. Until this
+                        // table is keyed by ClientId as well, an existing ID
+                        // can belong to a different client and is not proof
+                        // that this source was reused.
                         source_data.used = true;
                     }
                 }
@@ -294,13 +291,10 @@ impl Dispatch<WlDataDevice, ()> for CompositorState {
                 if let Some(source) = source.as_ref() {
                     let source_id = source.id().protocol_id();
                     if let Some(source_data) = state.data.sources.get_mut(&source_id) {
-                        if source_data.used {
-                            resource.post_error(
-                                wl_data_device::Error::UsedSource,
-                                format!("data source {} already used", source_id),
-                            );
-                            return;
-                        }
+                        // Resource IDs are scoped to a Wayland client, while
+                        // this compatibility table is currently keyed only by
+                        // the numeric ID. Do not disconnect a client because
+                        // another client previously used the same number.
                         source_data.used = true;
                     }
                 }

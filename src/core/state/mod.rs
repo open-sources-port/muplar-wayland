@@ -424,19 +424,17 @@ impl XdgPositionerData {
         let mut y = ay;
 
         // 1. Calculate base position from anchor
-        if (self.anchor & 4) != 0 { // Left
-             // x = ax
-        } else if (self.anchor & 8) != 0 { // Right
+        if (self.anchor & 4) != 0 {
+        } else if (self.anchor & 8) != 0 {
             x += aw;
-        } else { // Center
+        } else {
             x += aw / 2;
         }
 
-        if (self.anchor & 1) != 0 { // Top
-            // y = ay
-        } else if (self.anchor & 2) != 0 { // Bottom
+        if (self.anchor & 1) != 0 {
+        } else if (self.anchor & 2) != 0 {
             y += ah;
-        } else { // Center
+        } else {
             y += ah / 2;
         }
 
@@ -444,19 +442,17 @@ impl XdgPositionerData {
         let mut px = x + self.offset.0;
         let mut py = y + self.offset.1;
 
-        if (self.gravity & 4) != 0 { // Left
+        if (self.gravity & 4) != 0 {
             px -= self.width;
-        } else if (self.gravity & 8) != 0 { // Right
-            // px stays
-        } else { // Center
+        } else if (self.gravity & 8) != 0 {
+        } else {
             px -= self.width / 2;
         }
 
-        if (self.gravity & 1) != 0 { // Top
+        if (self.gravity & 1) != 0 {
             py -= self.height;
-        } else if (self.gravity & 2) != 0 { // Bottom
-            // py stays
-        } else { // Center
+        } else if (self.gravity & 2) != 0 {
+        } else {
             py -= self.height / 2;
         }
 
@@ -576,6 +572,12 @@ impl ClientData for ClientState {
     }
     
     fn disconnected(&self, client_id: ClientId, reason: DisconnectReason) {
+        crate::wlog!(
+            crate::util::logging::COMPOSITOR,
+            "Client disconnected: {:?}, reason={:?}",
+            client_id,
+            reason
+        );
         let reason_str = match reason {
             DisconnectReason::ConnectionClosed => "connection closed",
             DisconnectReason::ProtocolError(_) => "protocol error",

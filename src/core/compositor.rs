@@ -447,14 +447,38 @@ impl Compositor {
             let next_id = self.next_client_id;
             self.next_client_id += 1;
             
-            // Use a temporary empty client data to insert
-            struct PlaceholderClientData;
-            impl ClientData for PlaceholderClientData {
+            struct TrackingClientData {
+                internal_id: u32,
+                disconnected_queue: Arc<Mutex<Vec<ClientId>>>,
+            }
+            impl ClientData for TrackingClientData {
                 fn initialized(&self, _client_id: ClientId) {}
-                fn disconnected(&self, _client_id: ClientId, _reason: DisconnectReason) {}
+                fn disconnected(&self, client_id: ClientId, reason: DisconnectReason) {
+                    use std::io::Write;
+                    if let Ok(mut file) = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open("/tmp/wawona-protocol.log")
+                    {
+                        let _ = writeln!(
+                            file,
+                            "client={} backend={:?} reason={:?}",
+                            self.internal_id,
+                            client_id,
+                            reason
+                        );
+                    }
+                    if let Ok(mut queue) = self.disconnected_queue.lock() {
+                        queue.push(client_id);
+                    }
+                }
             }
             
-            match display_handle.insert_client(stream, Arc::new(PlaceholderClientData)) {
+            let tracking = TrackingClientData {
+                internal_id: next_id,
+                disconnected_queue: self.disconnected_clients.clone(),
+            };
+            match display_handle.insert_client(stream, Arc::new(tracking)) {
                 Ok(client) => {
                     let backend_id = client.id();
                     tracing::info!("Accepted client connection: {} (backend={:?})", next_id, backend_id);
@@ -513,6 +537,11 @@ impl Compositor {
         let dispatched = match self.display.dispatch_clients(state) {
             Ok(count) => count,
             Err(e) => {
+                crate::wlog!(
+                    crate::util::logging::COMPOSITOR,
+                    "Wayland dispatch error: {:?}",
+                    e
+                );
                 tracing::warn!(
                     "Non-fatal Wayland dispatch error (client likely disconnected): {}",
                     e
@@ -524,6 +553,11 @@ impl Compositor {
         // Flush client event queues. Treat disconnect-related failures as
         // non-fatal to keep the compositor alive for remaining clients.
         if let Err(e) = self.display.flush_clients() {
+            crate::wlog!(
+                crate::util::logging::COMPOSITOR,
+                "Wayland flush error: {:?}",
+                e
+            );
             tracing::warn!(
                 "Non-fatal Wayland flush error (client likely disconnected): {}",
                 e
