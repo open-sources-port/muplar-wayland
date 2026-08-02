@@ -3,14 +3,11 @@
 //! This protocol allows clients and compositors to negotiate whether
 //! window decorations should be drawn client-side (CSD) or server-side (SSD).
 
-use wayland_server::{
-    Dispatch, Resource, DisplayHandle, GlobalDispatch,
-};
 use wayland_protocols::xdg::decoration::zv1::server::{
     zxdg_decoration_manager_v1::{self, ZxdgDecorationManagerV1},
-    zxdg_toplevel_decoration_v1::{self, ZxdgToplevelDecorationV1, Mode},
+    zxdg_toplevel_decoration_v1::{self, Mode, ZxdgToplevelDecorationV1},
 };
-
+use wayland_server::{Dispatch, DisplayHandle, GlobalDispatch, Resource};
 
 use crate::core::state::{CompositorState, DecorationPolicy};
 use crate::core::window::DecorationMode;
@@ -35,7 +32,10 @@ impl ToplevelDecorationData {
         }
     }
 
-    pub fn new_kde(window_id: u32, resource: crate::core::wayland::protocol::server::org_kde_kwin_server_decoration::org_kde_kwin_server_decoration::OrgKdeKwinServerDecoration) -> Self {
+    pub fn new_kde(
+        window_id: u32,
+        resource: crate::core::wayland::protocol::server::org_kde_kwin_server_decoration::org_kde_kwin_server_decoration::OrgKdeKwinServerDecoration,
+    ) -> Self {
         Self {
             window_id,
             mode: wayland_protocols::xdg::decoration::zv1::server::zxdg_toplevel_decoration_v1::Mode::ClientSide,
@@ -52,7 +52,6 @@ unsafe impl Sync for ToplevelDecorationData {}
 pub struct DecorationState {
     pub decorations: HashMap<(wayland_server::backend::ClientId, u32), ToplevelDecorationData>,
 }
-
 
 // ============================================================================
 // zxdg_decoration_manager_v1
@@ -91,35 +90,46 @@ impl Dispatch<ZxdgDecorationManagerV1, ()> for CompositorState {
                 let window_id = match toplevel.data::<u32>() {
                     Some(id) => *id,
                     None => {
-                        crate::wlog!(crate::util::logging::COMPOSITOR, "zxdg_decoration_manager: xdg_toplevel resource missing window_id data");
+                        crate::wlog!(
+                            crate::util::logging::COMPOSITOR,
+                            "zxdg_decoration_manager: xdg_toplevel resource missing window_id data"
+                        );
                         // We MUST initialize the resource anyway to avoid a panic in wayland-server
                         data_init.init(id, 0);
                         return;
                     }
                 };
-                
+
                 // Initialize decoration resource first using the id from the request
                 let decoration = data_init.init(id, window_id);
-                
+
                 // Create data with the cloned resource
 
-                
-                let decoration_data = ToplevelDecorationData::new(window_id, Some(decoration.clone()));
+                let decoration_data =
+                    ToplevelDecorationData::new(window_id, Some(decoration.clone()));
                 let client_id = _client.id();
-                
-                state.xdg.decoration.decorations.insert((client_id, decoration.id().protocol_id()), decoration_data);
 
-                
+                state
+                    .xdg
+                    .decoration
+                    .decorations
+                    .insert((client_id, decoration.id().protocol_id()), decoration_data);
+
                 // Send the preferred mode based on compositor policy
                 let preferred_mode = match state.decoration_policy {
                     DecorationPolicy::PreferClient => Mode::ClientSide,
                     DecorationPolicy::PreferServer => Mode::ServerSide,
                     DecorationPolicy::ForceServer => Mode::ServerSide,
                 };
-                
-                crate::wlog!(crate::util::logging::COMPOSITOR, "Sending zxdg_toplevel_decoration.configure for window {}: {:?}", window_id, preferred_mode);
+
+                crate::wlog!(
+                    crate::util::logging::COMPOSITOR,
+                    "Sending zxdg_toplevel_decoration.configure for window {}: {:?}",
+                    window_id,
+                    preferred_mode
+                );
                 decoration.configure(preferred_mode);
-                
+
                 // Update window decoration mode
                 if let Some(window) = state.get_window(window_id) {
                     let mut window = window.write().unwrap();
@@ -129,18 +139,20 @@ impl Dispatch<ZxdgDecorationManagerV1, ()> for CompositorState {
                         _ => DecorationMode::ClientSide,
                     };
                 }
-                
+
                 // Trigger reconfiguration
                 state.reconfigure_window_decorations(window_id);
-                
+
                 tracing::debug!(
                     "Created toplevel decoration for window {}: {:?}",
-                    window_id, preferred_mode
+                    window_id,
+                    preferred_mode
                 );
-                
+
                 tracing::debug!(
                     "Created toplevel decoration for window {}: {:?}",
-                    window_id, preferred_mode
+                    window_id,
+                    preferred_mode
                 );
             }
             zxdg_decoration_manager_v1::Request::Destroy => {
@@ -167,23 +179,23 @@ impl Dispatch<ZxdgToplevelDecorationV1, u32> for CompositorState {
     ) {
         let dec_id = resource.id().protocol_id();
         let window_id = *_data;
-        
+
         match request {
             zxdg_toplevel_decoration_v1::Request::SetMode { mode } => {
                 tracing::debug!("Client requests decoration mode: {:?}", mode);
-                
+
                 // Convert WEnum<Mode> to Mode
                 let requested_mode = match mode {
                     wayland_server::WEnum::Value(m) => m,
                     wayland_server::WEnum::Unknown(_) => Mode::ClientSide,
                 };
-                
+
                 // Determine the actual mode based on policy
                 let actual_mode = match state.decoration_policy {
                     DecorationPolicy::ForceServer => Mode::ServerSide,
                     _ => requested_mode,
                 };
-                
+
                 let new_mode = match actual_mode {
                     Mode::ClientSide => DecorationMode::ClientSide,
                     Mode::ServerSide => DecorationMode::ServerSide,
@@ -194,9 +206,13 @@ impl Dispatch<ZxdgToplevelDecorationV1, u32> for CompositorState {
                     window.decoration_mode = new_mode;
                 }
 
-                crate::wlog!(crate::util::logging::COMPOSITOR,
+                crate::wlog!(
+                    crate::util::logging::COMPOSITOR,
                     "Set decoration mode for window {}: {:?} (requested {:?}, policy {:?})",
-                    window_id, actual_mode, requested_mode, state.decoration_policy
+                    window_id,
+                    actual_mode,
+                    requested_mode,
+                    state.decoration_policy
                 );
 
                 state.pending_compositor_events.push(
@@ -216,14 +232,14 @@ impl Dispatch<ZxdgToplevelDecorationV1, u32> for CompositorState {
             }
             zxdg_toplevel_decoration_v1::Request::UnsetMode => {
                 tracing::debug!("Client unsets decoration mode");
-                
+
                 // Revert to compositor preference
                 let preferred_mode = match state.decoration_policy {
                     DecorationPolicy::PreferClient => Mode::ClientSide,
                     DecorationPolicy::PreferServer => Mode::ServerSide,
                     DecorationPolicy::ForceServer => Mode::ServerSide,
                 };
-                
+
                 let new_mode = match preferred_mode {
                     Mode::ClientSide => DecorationMode::ClientSide,
                     Mode::ServerSide => DecorationMode::ServerSide,
@@ -249,7 +265,11 @@ impl Dispatch<ZxdgToplevelDecorationV1, u32> for CompositorState {
             zxdg_toplevel_decoration_v1::Request::Destroy => {
                 let client_id = _client.id();
                 let dec_id = resource.id().protocol_id();
-                state.xdg.decoration.decorations.remove(&(client_id, dec_id));
+                state
+                    .xdg
+                    .decoration
+                    .decorations
+                    .remove(&(client_id, dec_id));
                 tracing::debug!("zxdg_toplevel_decoration_v1 destroyed");
             }
 

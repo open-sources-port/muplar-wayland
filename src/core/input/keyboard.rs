@@ -1,10 +1,10 @@
 use std::sync::Arc;
 use std::time::Instant;
-use wayland_server::Resource;
 use wayland_server::protocol::wl_keyboard::{self, WlKeyboard};
 use wayland_server::protocol::wl_surface::WlSurface;
+use wayland_server::Resource;
 
-use super::xkb::{XkbContext, XkbState, KeyResult, create_keymap_file, MINIMAL_KEYMAP};
+use super::xkb::{create_keymap_file, KeyResult, XkbContext, XkbState, MINIMAL_KEYMAP};
 
 /// Keyboard state for a seat, managing focus, pressed keys, XKB, and key repeat.
 #[derive(Debug)]
@@ -89,11 +89,7 @@ impl KeyboardState {
             if let Ok(state) = state.lock() {
                 let file = state.keymap_file();
                 let size = state.keymap_size;
-                keyboard.keymap(
-                    wl_keyboard::KeymapFormat::XkbV1,
-                    file.as_fd(),
-                    size,
-                );
+                keyboard.keymap(wl_keyboard::KeymapFormat::XkbV1, file.as_fd(), size);
                 keymap_done = true;
             }
         }
@@ -196,17 +192,9 @@ impl KeyboardState {
     }
 
     /// Send enter event to all keyboard resources matching the surface's client.
-    pub fn broadcast_enter(
-        &mut self,
-        serial: u32,
-        surface: &WlSurface,
-        keys: &[u32],
-    ) {
+    pub fn broadcast_enter(&mut self, serial: u32, surface: &WlSurface, keys: &[u32]) {
         let client = surface.client();
-        let keys_bytes: Vec<u8> = keys
-            .iter()
-            .flat_map(|k| k.to_ne_bytes().to_vec())
-            .collect();
+        let keys_bytes: Vec<u8> = keys.iter().flat_map(|k| k.to_ne_bytes().to_vec()).collect();
 
         for kbd in &self.resources {
             if kbd.client() == client {
@@ -298,11 +286,7 @@ impl KeyboardState {
         let size = new_state.keymap_size;
 
         for kbd in &self.resources {
-            kbd.keymap(
-                wl_keyboard::KeymapFormat::XkbV1,
-                file.as_fd(),
-                size,
-            );
+            kbd.keymap(wl_keyboard::KeymapFormat::XkbV1, file.as_fd(), size);
         }
 
         self.xkb_state = Some(Arc::new(std::sync::Mutex::new(new_state)));

@@ -5,19 +5,19 @@
 // All shared logic lives in Rust core/, platform adapters handle
 // native rendering (Metal on macOS/iOS, GPU backend on Android)
 
-pub mod core;
-pub mod platform;
-pub mod ffi;
 pub mod config;
-pub mod util;
+pub mod core;
+pub mod ffi;
+pub mod platform;
 pub mod prelude;
+pub mod util;
 pub mod version;
 
 // Re-export FFI types at crate root for UniFFI
 // UniFFI's generated code expects these types to be accessible from the crate root
-pub use ffi::types::*;
+pub use ffi::api::{build_info, version, WawonaCore};
 pub use ffi::errors::*;
-pub use ffi::api::{WawonaCore, version, build_info};
+pub use ffi::types::*;
 
 // When the waypipe feature is enabled (iOS/Android), force the linker to
 // include waypipe's objects in the staticlib so waypipe_main is available

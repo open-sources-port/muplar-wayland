@@ -13,69 +13,65 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use crate::core::input::xkb::{XkbContext, XkbState};
 use crate::core::input::keyboard::KeyboardState;
 use crate::core::input::pointer::PointerState;
 use crate::core::input::touch::TouchState;
+use crate::core::input::xkb::{XkbContext, XkbState};
 
 use wayland_server::Resource;
 
-use wayland_server::protocol::wl_callback::WlCallback;
 use wayland_server::backend::{ClientData, ClientId, DisconnectReason};
-
-
+use wayland_server::protocol::wl_callback::WlCallback;
 
 use crate::core::surface::Surface;
-use crate::core::window::{Window, DecorationMode};
-use crate::core::window::tree::WindowTree;
 use crate::core::window::focus::FocusManager;
+use crate::core::window::tree::WindowTree;
+use crate::core::window::{DecorationMode, Window};
 
 use crate::core::compositor::CompositorEvent;
 
 use crate::core::wayland::protocol::server::xdg::shell::server::{
-    xdg_surface, xdg_toplevel, xdg_popup, xdg_wm_base,
+    xdg_popup, xdg_surface, xdg_toplevel, xdg_wm_base,
 };
 
-
-
 use crate::core::wayland::ext::pointer_constraints::PointerConstraintsState;
-use crate::core::wayland::ext::relative_pointer::RelativePointerState;
 use crate::core::wayland::ext::pointer_gestures::PointerGesturesState;
+use crate::core::wayland::ext::relative_pointer::RelativePointerState;
 use crate::core::wayland::ext::viewporter::{ViewportData, ViewporterState};
 use crate::core::wayland::wlr::export_dmabuf::{DmabufExportFrame, ExportDmabufState};
 
-use crate::core::wayland::ext::presentation_time::PresentationState;
-use crate::core::wayland::ext::linux_dmabuf::LinuxDmabufState;
 use crate::core::wayland::ext::idle_inhibit::IdleInhibitState;
 use crate::core::wayland::ext::keyboard_shortcuts_inhibit::KeyboardShortcutsInhibitState;
+use crate::core::wayland::ext::linux_dmabuf::LinuxDmabufState;
+use crate::core::wayland::ext::presentation_time::PresentationState;
 
 use crate::core::wayland::xdg::xdg_activation::ActivationState;
 use crate::core::wayland::xdg::xdg_foreign::XdgForeignState;
 
-use crate::core::render::scene::Scene;
 use crate::core::render::damage::SceneDamage;
 use crate::core::render::node::SceneNode;
-use crate::ffi::types::ContentRect;
-use crate::core::wayland::xdg::xdg_output::XdgOutputState;
+use crate::core::render::scene::Scene;
 use crate::core::wayland::xdg::decoration::DecorationState;
+use crate::core::wayland::xdg::xdg_output::XdgOutputState;
+use crate::ffi::types::ContentRect;
 
 use crate::core::wayland::wlr::data_control::DataControlState;
 use crate::core::wayland::wlr::screencopy::PendingScreencopy;
 
-use crate::core::wayland::wlr::virtual_pointer::VirtualPointerState;
 use crate::core::wayland::wlr::virtual_keyboard::VirtualKeyboardState;
+use crate::core::wayland::wlr::virtual_pointer::VirtualPointerState;
 
 use crate::core::wayland::ext::data_device::DataDeviceState;
 #[cfg(feature = "desktop-protocols")]
-use crate::core::wayland::ext::linux_drm_syncobj::SyncObjState;
-#[cfg(feature = "desktop-protocols")]
 use crate::core::wayland::ext::drm_lease::DrmLeaseState;
+#[cfg(feature = "desktop-protocols")]
+use crate::core::wayland::ext::linux_drm_syncobj::SyncObjState;
 
 use crate::core::traits::ProtocolState;
 
 // Sub-modules containing extracted CompositorState impl blocks
-mod scene;
 mod input;
+mod scene;
 mod surfaces;
 mod windows;
 
@@ -120,18 +116,18 @@ impl ShmPool {
     /// Create a new SHM pool from file descriptor
     pub fn new(fd: OwnedFd, size: i32) -> Self {
         Self {
-            fd,  // Store the OwnedFd directly to keep it alive
+            fd, // Store the OwnedFd directly to keep it alive
             size: size as usize,
             data: None,
         }
     }
-    
+
     /// mmap the pool and return pointer to data
     pub fn map(&mut self) -> Option<*mut u8> {
         if self.data.is_some() {
             return self.data;
         }
-        
+
         // SAFETY: mmap the file descriptor (read+write for compositor read and screencopy write)
         unsafe {
             let ptr = libc::mmap(
@@ -142,12 +138,16 @@ impl ShmPool {
                 self.fd.as_raw_fd(),
                 0,
             );
-            
+
             if ptr == libc::MAP_FAILED {
-                tracing::error!("Failed to mmap SHM pool (fd={}, size={})", self.fd.as_raw_fd(), self.size);
+                tracing::error!(
+                    "Failed to mmap SHM pool (fd={}, size={})",
+                    self.fd.as_raw_fd(),
+                    self.size
+                );
                 return None;
             }
-            
+
             self.data = Some(ptr as *mut u8);
             self.data
         }
@@ -169,7 +169,7 @@ impl ShmPool {
         }
 
         self.size = new_size;
-        
+
         // We don't mmap immediately here, it will be mapped on the next map() call
         // which usually happens when the compositor tries to access pixels.
         tracing::debug!("Resized SHM pool to {} bytes", self.size);
@@ -250,7 +250,6 @@ impl LayerSurface {
         }
     }
 }
-
 
 // ============================================================================
 // XDG Shell Data Types
@@ -410,8 +409,8 @@ pub struct XdgPositionerData {
     pub width: i32,
     pub height: i32,
     pub anchor_rect: (i32, i32, i32, i32),
-    pub anchor: u32, // xdg_positioner::Anchor
-    pub gravity: u32, // xdg_positioner::Gravity
+    pub anchor: u32,                // xdg_positioner::Anchor
+    pub gravity: u32,               // xdg_positioner::Gravity
     pub constraint_adjustment: u32, // xdg_positioner::ConstraintAdjustment
     pub offset: (i32, i32),
 }
@@ -458,50 +457,62 @@ impl XdgPositionerData {
 
         // 3. Apply constraint adjustments (basic Slide and Flip)
         // Adjustments: Slide X(1), Slide Y(2), Flip X(4), Flip Y(8)
-        
+
         // Horizontal adjustment
         if px < output_rect.x {
-            if (self.constraint_adjustment & 4) != 0 { // Flip X
+            if (self.constraint_adjustment & 4) != 0 {
+                // Flip X
                 // Simple flip: try mirroring across anchor point
                 let flipped_px = x - (px - x) - self.width;
                 if flipped_px + self.width <= (output_rect.x + output_rect.width as i32) {
                     px = flipped_px;
                 }
             }
-            if px < output_rect.x && (self.constraint_adjustment & 1) != 0 { // Slide X
+            if px < output_rect.x && (self.constraint_adjustment & 1) != 0 {
+                // Slide X
                 px = output_rect.x;
             }
         } else if px + self.width > (output_rect.x + output_rect.width as i32) {
-            if (self.constraint_adjustment & 4) != 0 { // Flip X
+            if (self.constraint_adjustment & 4) != 0 {
+                // Flip X
                 let flipped_px = x - (px - x) - self.width;
                 if flipped_px >= output_rect.x {
                     px = flipped_px;
                 }
             }
-            if px + self.width > (output_rect.x + output_rect.width as i32) && (self.constraint_adjustment & 1) != 0 { // Slide X
+            if px + self.width > (output_rect.x + output_rect.width as i32)
+                && (self.constraint_adjustment & 1) != 0
+            {
+                // Slide X
                 px = (output_rect.x + output_rect.width as i32) - self.width;
             }
         }
 
         // Vertical adjustment
         if py < output_rect.y {
-            if (self.constraint_adjustment & 8) != 0 { // Flip Y
+            if (self.constraint_adjustment & 8) != 0 {
+                // Flip Y
                 let flipped_py = y - (py - y) - self.height;
                 if flipped_py + self.height <= (output_rect.y + output_rect.height as i32) {
                     py = flipped_py;
                 }
             }
-            if py < output_rect.y && (self.constraint_adjustment & 2) != 0 { // Slide Y
+            if py < output_rect.y && (self.constraint_adjustment & 2) != 0 {
+                // Slide Y
                 py = output_rect.y;
             }
         } else if py + self.height > (output_rect.y + output_rect.height as i32) {
-             if (self.constraint_adjustment & 8) != 0 { // Flip Y
+            if (self.constraint_adjustment & 8) != 0 {
+                // Flip Y
                 let flipped_py = y - (py - y) - self.height;
                 if flipped_py >= output_rect.y {
                     py = flipped_py;
                 }
             }
-            if py + self.height > (output_rect.y + output_rect.height as i32) && (self.constraint_adjustment & 2) != 0 { // Slide Y
+            if py + self.height > (output_rect.y + output_rect.height as i32)
+                && (self.constraint_adjustment & 2) != 0
+            {
+                // Slide Y
                 py = (output_rect.y + output_rect.height as i32) - self.height;
             }
         }
@@ -552,9 +563,6 @@ impl SubsurfaceData {
     }
 }
 
-
-
-
 // ============================================================================
 // Client State
 // ============================================================================
@@ -570,7 +578,7 @@ impl ClientData for ClientState {
     fn initialized(&self, client_id: ClientId) {
         tracing::info!("Client initialized: {:?}", client_id);
     }
-    
+
     fn disconnected(&self, client_id: ClientId, reason: DisconnectReason) {
         crate::wlog!(
             crate::util::logging::COMPOSITOR,
@@ -681,7 +689,7 @@ impl OutputState {
         // 96 DPI = ~3.78 pixels/mm
         self.physical_width = (width as f32 / 3.78) as u32;
         self.physical_height = (height as f32 / 3.78) as u32;
-        
+
         // Update or add mode
         if let Some(mode) = self.modes.get_mut(0) {
             mode.width = width;
@@ -711,8 +719,7 @@ impl Default for OutputState {
 // Seat Resources Tracking
 // ============================================================================
 
-use wayland_server::protocol::{wl_pointer, wl_keyboard, wl_touch};
-
+use wayland_server::protocol::{wl_keyboard, wl_pointer, wl_touch};
 
 use crate::core::wayland::protocol::wlroots::wlr_data_control_unstable_v1::zwlr_data_control_source_v1;
 
@@ -761,34 +768,72 @@ impl Default for SeatState {
 // without changing every call site at once.
 impl SeatState {
     // -- Pointer field accessors (delegate to self.pointer) --
-    pub fn get_pointer_focus(&self) -> Option<u32> { self.pointer.focus }
-    pub fn set_pointer_focus(&mut self, v: Option<u32>) { self.pointer.focus = v; }
+    pub fn get_pointer_focus(&self) -> Option<u32> {
+        self.pointer.focus
+    }
+    pub fn set_pointer_focus(&mut self, v: Option<u32>) {
+        self.pointer.focus = v;
+    }
 
-    pub fn get_pointer_x(&self) -> f64 { self.pointer.x }
-    pub fn get_pointer_y(&self) -> f64 { self.pointer.y }
-    pub fn set_pointer_pos(&mut self, x: f64, y: f64) { self.pointer.x = x; self.pointer.y = y; }
+    pub fn get_pointer_x(&self) -> f64 {
+        self.pointer.x
+    }
+    pub fn get_pointer_y(&self) -> f64 {
+        self.pointer.y
+    }
+    pub fn set_pointer_pos(&mut self, x: f64, y: f64) {
+        self.pointer.x = x;
+        self.pointer.y = y;
+    }
 
-    pub fn get_pointer_button_count(&self) -> u32 { self.pointer.button_count }
+    pub fn get_pointer_button_count(&self) -> u32 {
+        self.pointer.button_count
+    }
 
-    pub fn get_cursor_surface(&self) -> Option<u32> { self.pointer.cursor_surface }
-    pub fn get_cursor_hotspot(&self) -> (f64, f64) { (self.pointer.cursor_hotspot_x, self.pointer.cursor_hotspot_y) }
+    pub fn get_cursor_surface(&self) -> Option<u32> {
+        self.pointer.cursor_surface
+    }
+    pub fn get_cursor_hotspot(&self) -> (f64, f64) {
+        (self.pointer.cursor_hotspot_x, self.pointer.cursor_hotspot_y)
+    }
 
     // -- Keyboard field accessors (delegate to self.keyboard) --
-    pub fn get_keyboard_focus(&self) -> Option<u32> { self.keyboard.focus }
-    pub fn set_keyboard_focus_id(&mut self, v: Option<u32>) { self.keyboard.focus = v; }
-    pub fn get_pressed_keys(&self) -> &[u32] { &self.keyboard.pressed_keys }
+    pub fn get_keyboard_focus(&self) -> Option<u32> {
+        self.keyboard.focus
+    }
+    pub fn set_keyboard_focus_id(&mut self, v: Option<u32>) {
+        self.keyboard.focus = v;
+    }
+    pub fn get_pressed_keys(&self) -> &[u32] {
+        &self.keyboard.pressed_keys
+    }
     pub fn get_mods(&self) -> (u32, u32, u32, u32) {
-        (self.keyboard.mods_depressed, self.keyboard.mods_latched, self.keyboard.mods_locked, self.keyboard.mods_group)
+        (
+            self.keyboard.mods_depressed,
+            self.keyboard.mods_latched,
+            self.keyboard.mods_locked,
+            self.keyboard.mods_group,
+        )
     }
 
     // -- Resource accessors for backward compat --
-    pub fn get_pointers(&self) -> &[wl_pointer::WlPointer] { &self.pointer.resources }
-    pub fn get_keyboards(&self) -> &[wl_keyboard::WlKeyboard] { &self.keyboard.resources }
-    pub fn get_touches(&self) -> &[wl_touch::WlTouch] { &self.touch.resources }
+    pub fn get_pointers(&self) -> &[wl_pointer::WlPointer] {
+        &self.pointer.resources
+    }
+    pub fn get_keyboards(&self) -> &[wl_keyboard::WlKeyboard] {
+        &self.keyboard.resources
+    }
+    pub fn get_touches(&self) -> &[wl_touch::WlTouch] {
+        &self.touch.resources
+    }
 
     // -- XKB accessors --
-    pub fn get_xkb_context(&self) -> &Arc<XkbContext> { &self.keyboard.xkb_context }
-    pub fn get_xkb_state(&self) -> &Option<Arc<std::sync::Mutex<XkbState>>> { &self.keyboard.xkb_state }
+    pub fn get_xkb_context(&self) -> &Arc<XkbContext> {
+        &self.keyboard.xkb_context
+    }
+    pub fn get_xkb_state(&self) -> &Option<Arc<std::sync::Mutex<XkbState>>> {
+        &self.keyboard.xkb_state
+    }
 }
 
 impl SeatState {
@@ -840,19 +885,43 @@ impl SeatState {
     // Broadcast methods — delegate to sub-state modules
     // =========================================================================
 
-    pub fn broadcast_pointer_motion(&mut self, time: u32, x: f64, y: f64, focused_client: Option<&wayland_server::Client>) {
+    pub fn broadcast_pointer_motion(
+        &mut self,
+        time: u32,
+        x: f64,
+        y: f64,
+        focused_client: Option<&wayland_server::Client>,
+    ) {
         self.pointer.broadcast_motion(time, x, y, focused_client);
     }
 
-    pub fn broadcast_pointer_button(&mut self, serial: u32, time: u32, button: u32, state: wl_pointer::ButtonState, focused_client: Option<&wayland_server::Client>) {
-        self.pointer.broadcast_button(serial, time, button, state, focused_client);
+    pub fn broadcast_pointer_button(
+        &mut self,
+        serial: u32,
+        time: u32,
+        button: u32,
+        state: wl_pointer::ButtonState,
+        focused_client: Option<&wayland_server::Client>,
+    ) {
+        self.pointer
+            .broadcast_button(serial, time, button, state, focused_client);
     }
 
-    pub fn broadcast_pointer_enter(&mut self, serial: u32, surface: &wayland_server::protocol::wl_surface::WlSurface, x: f64, y: f64) {
+    pub fn broadcast_pointer_enter(
+        &mut self,
+        serial: u32,
+        surface: &wayland_server::protocol::wl_surface::WlSurface,
+        x: f64,
+        y: f64,
+    ) {
         self.pointer.broadcast_enter(serial, surface, x, y);
     }
 
-    pub fn broadcast_pointer_leave(&mut self, serial: u32, surface: &wayland_server::protocol::wl_surface::WlSurface) {
+    pub fn broadcast_pointer_leave(
+        &mut self,
+        serial: u32,
+        surface: &wayland_server::protocol::wl_surface::WlSurface,
+    ) {
         self.pointer.broadcast_leave(serial, surface);
     }
 
@@ -860,15 +929,40 @@ impl SeatState {
         self.pointer.broadcast_frame(focused_client);
     }
 
-    pub fn broadcast_pointer_axis(&mut self, time: u32, axis: wl_pointer::Axis, value: f64, discrete: i32, source: crate::ffi::types::AxisSource, focused_client: Option<&wayland_server::Client>) {
-        self.pointer.broadcast_axis(time, axis, value, discrete, source, focused_client);
+    pub fn broadcast_pointer_axis(
+        &mut self,
+        time: u32,
+        axis: wl_pointer::Axis,
+        value: f64,
+        discrete: i32,
+        source: crate::ffi::types::AxisSource,
+        focused_client: Option<&wayland_server::Client>,
+    ) {
+        self.pointer
+            .broadcast_axis(time, axis, value, discrete, source, focused_client);
     }
 
-    pub fn broadcast_key(&mut self, serial: u32, time: u32, key: u32, state: wl_keyboard::KeyState, focused_client: Option<&wayland_server::Client>) {
-        self.keyboard.broadcast_key(serial, time, key, state, focused_client);
+    pub fn broadcast_key(
+        &mut self,
+        serial: u32,
+        time: u32,
+        key: u32,
+        state: wl_keyboard::KeyState,
+        focused_client: Option<&wayland_server::Client>,
+    ) {
+        self.keyboard
+            .broadcast_key(serial, time, key, state, focused_client);
     }
 
-    pub fn broadcast_modifiers(&mut self, serial: u32, depressed: u32, latched: u32, locked: u32, group: u32, focused_client: Option<&wayland_server::Client>) {
+    pub fn broadcast_modifiers(
+        &mut self,
+        serial: u32,
+        depressed: u32,
+        latched: u32,
+        locked: u32,
+        group: u32,
+        focused_client: Option<&wayland_server::Client>,
+    ) {
         // Update cached state in keyboard
         self.keyboard.mods_depressed = depressed;
         self.keyboard.mods_latched = latched;
@@ -877,23 +971,53 @@ impl SeatState {
         self.keyboard.broadcast_modifiers(serial, focused_client);
     }
 
-    pub fn broadcast_keyboard_enter(&mut self, serial: u32, surface: &wayland_server::protocol::wl_surface::WlSurface, keys: &[u32]) {
+    pub fn broadcast_keyboard_enter(
+        &mut self,
+        serial: u32,
+        surface: &wayland_server::protocol::wl_surface::WlSurface,
+        keys: &[u32],
+    ) {
         self.keyboard.broadcast_enter(serial, surface, keys);
     }
 
-    pub fn broadcast_keyboard_leave(&mut self, serial: u32, surface: &wayland_server::protocol::wl_surface::WlSurface) {
+    pub fn broadcast_keyboard_leave(
+        &mut self,
+        serial: u32,
+        surface: &wayland_server::protocol::wl_surface::WlSurface,
+    ) {
         self.keyboard.broadcast_leave(serial, surface);
     }
 
-    pub fn broadcast_touch_down(&mut self, serial: u32, time: u32, surface: &wayland_server::protocol::wl_surface::WlSurface, id: i32, x: f64, y: f64) {
+    pub fn broadcast_touch_down(
+        &mut self,
+        serial: u32,
+        time: u32,
+        surface: &wayland_server::protocol::wl_surface::WlSurface,
+        id: i32,
+        x: f64,
+        y: f64,
+    ) {
         self.touch.broadcast_down(serial, time, surface, id, x, y);
     }
 
-    pub fn broadcast_touch_up(&mut self, serial: u32, time: u32, id: i32, focused_client: Option<&wayland_server::Client>) {
+    pub fn broadcast_touch_up(
+        &mut self,
+        serial: u32,
+        time: u32,
+        id: i32,
+        focused_client: Option<&wayland_server::Client>,
+    ) {
         self.touch.broadcast_up(serial, time, id, focused_client);
     }
 
-    pub fn broadcast_touch_motion(&mut self, time: u32, id: i32, x: f64, y: f64, focused_client: Option<&wayland_server::Client>) {
+    pub fn broadcast_touch_motion(
+        &mut self,
+        time: u32,
+        id: i32,
+        x: f64,
+        y: f64,
+        focused_client: Option<&wayland_server::Client>,
+    ) {
         self.touch.broadcast_motion(time, id, x, y, focused_client);
     }
 
@@ -909,8 +1033,6 @@ impl SeatState {
 // ============================================================================
 // Focus State
 // ============================================================================
-
-
 
 // ============================================================================
 // Frame Callback State
@@ -981,7 +1103,6 @@ pub struct XdgState {
     pub toplevel_icon: crate::core::wayland::xdg::xdg_toplevel_icon::ToplevelIconState,
 }
 
-
 impl Default for XdgState {
     fn default() -> Self {
         Self {
@@ -995,8 +1116,10 @@ impl Default for XdgState {
             output: XdgOutputState::default(),
             decoration: DecorationState::default(),
             pending_pings: HashMap::new(),
-            toplevel_drag: crate::core::wayland::xdg::xdg_toplevel_drag::ToplevelDragState::default(),
-            toplevel_icon: crate::core::wayland::xdg::xdg_toplevel_icon::ToplevelIconState::default(),
+            toplevel_drag: crate::core::wayland::xdg::xdg_toplevel_drag::ToplevelDragState::default(
+            ),
+            toplevel_icon: crate::core::wayland::xdg::xdg_toplevel_icon::ToplevelIconState::default(
+            ),
         }
     }
 }
@@ -1073,12 +1196,12 @@ pub struct ExtProtocolState {
     pub fullscreen_shell: crate::core::wayland::ext::fullscreen_shell::FullscreenShellState,
     /// XWayland keyboard grab state
     #[cfg(feature = "desktop-protocols")]
-    pub xwayland_keyboard_grab: crate::core::wayland::ext::xwayland_keyboard_grab::XwaylandKeyboardGrabState,
+    pub xwayland_keyboard_grab:
+        crate::core::wayland::ext::xwayland_keyboard_grab::XwaylandKeyboardGrabState,
     /// Image copy capture: session ObjectId -> (width, height) for active frame tracking
     #[cfg(feature = "desktop-protocols")]
     pub image_copy_capture_active_frame: HashMap<wayland_server::backend::ObjectId, (u32, u32)>,
 }
-
 
 impl Default for ExtProtocolState {
     fn default() -> Self {
@@ -1121,8 +1244,6 @@ impl Default for ExtProtocolState {
     }
 }
 
-
-
 // ============================================================================
 // Domain Sub-State: wlroots Protocols
 // ============================================================================
@@ -1152,12 +1273,12 @@ pub struct WlrState {
     pub gamma_control: GammaControlState,
     /// Pending image copy captures (desktop-protocols, platform writes pixels then signals done)
     #[cfg(feature = "desktop-protocols")]
-    pub pending_image_copy_captures: Vec<crate::core::wayland::ext::image_copy_capture::PendingImageCopyCapture>,
+    pub pending_image_copy_captures:
+        Vec<crate::core::wayland::ext::image_copy_capture::PendingImageCopyCapture>,
     /// Next image copy capture ID for FFI
     #[cfg(feature = "desktop-protocols")]
     pub next_image_copy_capture_id: u64,
 }
-
 
 impl Default for WlrState {
     fn default() -> Self {
@@ -1204,8 +1325,6 @@ pub struct GammaControlState {
     pub pending_restore: Option<u32>,
 }
 
-
-
 // ============================================================================
 // Main Compositor State
 // ============================================================================
@@ -1218,33 +1337,32 @@ pub struct CompositorState {
     // =========================================================================
     // Core State
     // =========================================================================
-    
     /// Connected clients
     pub clients: HashMap<wayland_server::backend::ClientId, ClientState>,
 
     /// All active surfaces, keyed by their Wayland object ID.
     pub surfaces: HashMap<u32, Arc<RwLock<Surface>>>,
-    
+
     /// All active windows (Toplevels), keyed by their ID.
     pub windows: HashMap<u32, Arc<RwLock<Window>>>,
-    
+
     /// Surface ID to Window ID mapping
     pub surface_to_window: HashMap<u32, u32>,
-    
+
     /// Deferred keyboard focus: set when inject_keyboard_enter fires before the
     /// window's first surface has been committed (race between becomeKeyWindow
     /// and the client's first xdg_toplevel map). Delivered in register_window.
     pub pending_keyboard_focus_window: Option<u64>,
-    
+
     /// Subsurface registry, keyed by subsurface's surface ID
     pub subsurfaces: HashMap<u32, SubsurfaceState>,
-    
+
     /// Parent to children mapping for subsurface hierarchy
     pub subsurface_children: HashMap<u32, Vec<u32>>,
-    
+
     /// Protocol surface ID to internal surface ID mapping, keyed by (ClientId, protocol_id)
     pub protocol_to_internal_surface: HashMap<(wayland_server::backend::ClientId, u32), u32>,
-    
+
     /// All active buffers, keyed by their (ClientId, protocol_id).
     pub buffers: HashMap<(ClientId, u32), Arc<RwLock<crate::core::surface::Buffer>>>,
 
@@ -1254,98 +1372,92 @@ pub struct CompositorState {
     // =========================================================================
     // Focus & Input State
     // =========================================================================
-    
     /// Focus manager
     pub focus: FocusManager,
-    
+
     /// Window tree
     pub window_tree: WindowTree,
-    
+
     /// Primary seat state
     pub seat: SeatState,
-    
+
     // =========================================================================
     // Output State
     // =========================================================================
-    
     /// Output states
     pub outputs: Vec<OutputState>,
-    
+
     /// Primary output index
     pub primary_output: usize,
-    
+
     /// Bound wl_output resources
-    pub output_resources: HashMap<wayland_server::backend::ObjectId, wayland_server::protocol::wl_output::WlOutput>,
+    pub output_resources:
+        HashMap<wayland_server::backend::ObjectId, wayland_server::protocol::wl_output::WlOutput>,
     /// wl_output ObjectId -> output_id (for image capture source resolution)
     pub output_id_by_resource: HashMap<wayland_server::backend::ObjectId, u32>,
     /// Image capture source ObjectId -> output_id (for CreateSession lookup)
     pub image_capture_source_output: HashMap<wayland_server::backend::ObjectId, u32>,
-    
+
     // =========================================================================
     // Frame Callbacks
     // =========================================================================
-    
     /// Pending frame callbacks per surface.
     pub frame_callbacks: HashMap<u32, Vec<WlCallback>>,
-    
+
     // =========================================================================
     // Configuration
     // =========================================================================
-    
     /// Decoration policy
     pub decoration_policy: DecorationPolicy,
-    
+
     /// Keyboard repeat rate (Hz)
     pub keyboard_repeat_rate: i32,
-    
+
     /// Keyboard repeat delay (ms)
     pub keyboard_repeat_delay: i32,
-    
+
     /// Whether to advertise zwp_fullscreen_shell_v1
     pub advertise_fullscreen_shell: bool,
-    
+
     // =========================================================================
     // ID Generators
     // =========================================================================
-    
     /// Next surface ID
     next_surface_id: u32,
-    
+
     /// Next window ID
     next_window_id: u32,
-    
+
     /// Serial counter for Wayland events
     serial: u32,
-    
+
     // =========================================================================
     // Protocol Domain State (grouped by domain)
     // =========================================================================
-    
     /// XDG shell protocol state
     pub xdg: XdgState,
-    
+
     /// Extension protocol state (pointer constraints, viewporter, dmabuf, etc.)
     pub ext: ExtProtocolState,
-    
+
     /// wlroots protocol state (layer shell, virtual devices, data control)
     pub wlr: WlrState,
-    
+
     /// Data device protocol state (clipboard, DnD)
     pub data: DataDeviceState,
-    
+
     // =========================================================================
     // Core Protocol Resources
     // =========================================================================
-    
     /// Bound wl_seat resources
     pub seat_resources: HashMap<u32, wayland_server::protocol::wl_seat::WlSeat>,
-    
+
     /// Pending compositor events (pushed by protocol handlers)
     pub pending_compositor_events: Vec<CompositorEvent>,
 
     /// Last copied text from clipboard selection (polled by Cocoa)
     pub last_copied_text: std::sync::Arc<std::sync::Mutex<Option<String>>>,
-    
+
     /// SHM pools for buffer pixel access ((client_id, pool_id) -> pool)
     pub shm_pools: HashMap<(ClientId, u32), ShmPool>,
 
@@ -1355,13 +1467,12 @@ pub struct CompositorState {
     // =========================================================================
     // Scene Graph
     // =========================================================================
-    
     /// Global scene graph
     pub scene: Scene,
-    
+
     /// Global damage tracking
     pub scene_damage: SceneDamage,
-    
+
     /// Next scene node ID
     next_node_id: u32,
 }
@@ -1369,12 +1480,12 @@ pub struct CompositorState {
 impl CompositorState {
     pub fn new(config: Option<crate::core::compositor::CompositorConfig>) -> Self {
         let (decoration_policy, advertise_fullscreen_shell) = if let Some(cfg) = config {
-             let policy = if cfg.force_ssd {
-                 DecorationPolicy::ForceServer
-             } else {
-                 DecorationPolicy::default()
-             };
-             (policy, cfg.advertise_fullscreen_shell)
+            let policy = if cfg.force_ssd {
+                DecorationPolicy::ForceServer
+            } else {
+                DecorationPolicy::default()
+            };
+            (policy, cfg.advertise_fullscreen_shell)
         } else {
             (DecorationPolicy::default(), false)
         };
@@ -1406,19 +1517,19 @@ impl CompositorState {
             next_surface_id: 1,
             next_window_id: 1,
             serial: 0,
-            
+
             // Protocol domain sub-states
             xdg: XdgState::default(),
             ext: ExtProtocolState::default(),
             wlr: WlrState::default(),
             data: DataDeviceState::default(),
             seat_resources: HashMap::new(),
-            
+
             pending_compositor_events: Vec::new(),
             last_copied_text: std::sync::Arc::new(std::sync::Mutex::new(None)),
             shm_pools: HashMap::new(),
             regions: HashMap::new(),
-            
+
             scene: Scene::new(),
             scene_damage: SceneDamage::new(),
             next_node_id: 1,
@@ -1431,7 +1542,7 @@ impl CompositorState {
         self.next_window_id += 1;
         id
     }
-    
+
     /// Generate next serial for Wayland events
     pub fn next_serial(&mut self) -> u32 {
         let serial = self.serial;
@@ -1465,7 +1576,7 @@ impl CompositorState {
     // =========================================================================
     // Frame Callbacks
     // =========================================================================
-    
+
     /// Queue a frame callback for a surface.
     pub fn queue_frame_callback(&mut self, surface_id: u32, callback: WlCallback) {
         self.frame_callbacks
@@ -1473,37 +1584,42 @@ impl CompositorState {
             .or_insert_with(Vec::new)
             .push(callback);
     }
-    
+
     /// Flush all pending frame callbacks for a surface.
     pub fn flush_frame_callbacks(&mut self, surface_id: u32, timestamp: Option<u32>) {
         if let Some(callbacks) = self.frame_callbacks.remove(&surface_id) {
             let _count = callbacks.len();
             let timestamp = timestamp.unwrap_or_else(Self::get_timestamp_ms);
-            crate::wtrace!(crate::util::logging::STATE, "Flushing {} frame callbacks for surface {} (timestamp={})", 
-                callbacks.len(), surface_id, timestamp);
+            crate::wtrace!(
+                crate::util::logging::STATE,
+                "Flushing {} frame callbacks for surface {} (timestamp={})",
+                callbacks.len(),
+                surface_id,
+                timestamp
+            );
             for callback in callbacks {
                 callback.done(timestamp);
             }
         }
     }
-    
+
     /// Flush all pending frame callbacks for all surfaces.
     pub fn flush_all_frame_callbacks(&mut self) {
         let timestamp = Self::get_timestamp_ms();
         let mut total = 0;
-        
+
         for (_surface_id, callbacks) in self.frame_callbacks.drain() {
             total += callbacks.len();
             for callback in callbacks {
                 callback.done(timestamp);
             }
         }
-        
+
         if total > 0 {
             tracing::trace!("Flushed {} total frame callbacks", total);
         }
     }
-    
+
     /// Check if there are pending frame callbacks
     pub fn has_pending_frame_callbacks(&self) -> bool {
         self.frame_callbacks.values().any(|v| !v.is_empty())
@@ -1512,7 +1628,7 @@ impl CompositorState {
     // =========================================================================
     // Output Management (core)
     // =========================================================================
-    
+
     /// Get primary output
     pub fn primary_output(&self) -> &OutputState {
         &self.outputs[self.primary_output]
@@ -1523,34 +1639,46 @@ impl CompositorState {
         let index = self.primary_output;
         if let Some(output) = self.outputs.get_mut(index) {
             output.update(width, height, scale);
-            crate::wlog!(crate::util::logging::STATE, "Updated primary output: {}x{} @ {}x", width, height, scale);
+            crate::wlog!(
+                crate::util::logging::STATE,
+                "Updated primary output: {}x{} @ {}x",
+                width,
+                height,
+                scale
+            );
         }
     }
-    
+
     /// Get primary output mutably
     pub fn primary_output_mut(&mut self) -> &mut OutputState {
         &mut self.outputs[self.primary_output]
     }
-    
+
     /// Set output size
     pub fn set_output_size(&mut self, width: u32, height: u32, scale: f32) {
         let output = self.primary_output_mut();
-        
+
         let safe_scale = if scale < 1.0 { 1.0 } else { scale };
         let safe_width = if width == 0 { 1920 } else { width };
         let safe_height = if height == 0 { 1080 } else { height };
-        
+
         output.width = safe_width;
         output.height = safe_height;
         output.scale = safe_scale;
-        
+
         output.physical_width = ((safe_width as f32 / safe_scale) / 96.0 * 25.4) as u32;
         output.physical_height = ((safe_height as f32 / safe_scale) / 96.0 * 25.4) as u32;
-        
-        tracing::info!("Output size set to {}x{} @ {}x (phys: {}x{}mm)", 
-            safe_width, safe_height, safe_scale, output.physical_width, output.physical_height);
+
+        tracing::info!(
+            "Output size set to {}x{} @ {}x (phys: {}x{}mm)",
+            safe_width,
+            safe_height,
+            safe_scale,
+            output.physical_width,
+            output.physical_height
+        );
     }
-    
+
     /// Set platform safe area insets on the primary output.
     pub fn set_safe_area_insets(&mut self, top: i32, right: i32, bottom: i32, left: i32) {
         let idx = self.primary_output;
@@ -1558,16 +1686,19 @@ impl CompositorState {
             output.safe_area_insets = (top, right, bottom, left);
             tracing::info!(
                 "Safe area insets set: top={} right={} bottom={} left={}",
-                top, right, bottom, left
+                top,
+                right,
+                bottom,
+                left
             );
         }
         self.reposition_layer_surfaces();
     }
-    
+
     // =========================================================================
     // Utilities
     // =========================================================================
-    
+
     /// Get current timestamp in milliseconds.
     pub fn get_timestamp_ms() -> u32 {
         use std::time::{SystemTime, UNIX_EPOCH};
@@ -1576,7 +1707,7 @@ impl CompositorState {
             .unwrap()
             .as_millis() as u32
     }
-    
+
     /// Get decoration mode for new windows
     pub fn decoration_mode_for_new_window(&self) -> DecorationMode {
         match self.decoration_policy {
@@ -1585,7 +1716,6 @@ impl CompositorState {
             DecorationPolicy::ForceServer => DecorationMode::ServerSide,
         }
     }
-    
 }
 
 impl Default for CompositorState {
@@ -1601,7 +1731,7 @@ impl Default for CompositorState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_compositor_state_new() {
         let state = CompositorState::new(None);
@@ -1609,7 +1739,7 @@ mod tests {
         assert!(state.windows.is_empty());
         assert_eq!(state.focus.keyboard_focus, None);
     }
-    
+
     #[test]
     fn test_surface_ids() {
         let mut state = CompositorState::new(None);
@@ -1617,7 +1747,7 @@ mod tests {
         assert_eq!(state.next_surface_id(), 2);
         assert_eq!(state.next_surface_id(), 3);
     }
-    
+
     #[test]
     fn test_window_ids() {
         let mut state = CompositorState::new(None);
@@ -1625,7 +1755,7 @@ mod tests {
         assert_eq!(state.next_window_id(), 2);
         assert_eq!(state.next_window_id(), 3);
     }
-    
+
     #[test]
     fn test_focus_history() {
         let mut focus = crate::core::window::focus::FocusManager::new();
@@ -1685,7 +1815,9 @@ impl CompositorState {
         let timestamp_ns = crate::core::Compositor::timestamp_ms() as u64 * 1_000_000;
         let refresh_ns = 16_666_666; // 60 Hz default
         let seq = self.next_presentation_seq();
-        self.ext.presentation.send_presented_events(timestamp_ns, refresh_ns, seq);
+        self.ext
+            .presentation
+            .send_presented_events(timestamp_ns, refresh_ns, seq);
     }
 
     /// Remove state owned by a disconnected client.
@@ -1733,15 +1865,23 @@ impl CompositorState {
         self.clients.remove(&client);
 
         self.wlr.layer_surfaces.retain(|(cid, _), _| *cid != client);
-        self.wlr.surface_to_layer.retain(|(cid, _), _| *cid != client);
-        self.wlr.virtual_pointers.retain(|(cid, _), _| *cid != client);
-        self.wlr.virtual_keyboards.retain(|(cid, _), _| *cid != client);
+        self.wlr
+            .surface_to_layer
+            .retain(|(cid, _), _| *cid != client);
+        self.wlr
+            .virtual_pointers
+            .retain(|(cid, _), _| *cid != client);
+        self.wlr
+            .virtual_keyboards
+            .retain(|(cid, _), _| *cid != client);
 
         self.xdg.surfaces.retain(|(cid, _), _| *cid != client);
         self.xdg.toplevels.retain(|(cid, _), _| *cid != client);
         self.xdg.popups.retain(|(cid, _), _| *cid != client);
         self.xdg.positioners.retain(|(cid, _), _| *cid != client);
-        self.xdg.pending_pings.retain(|_, (cid, _, _)| *cid != client);
+        self.xdg
+            .pending_pings
+            .retain(|_, (cid, _, _)| *cid != client);
     }
 }
 
@@ -1753,13 +1893,13 @@ impl ProtocolState for ExtProtocolState {
     fn client_disconnected(&mut self, client: wayland_server::backend::ClientId) {
         use wayland_server::Resource;
         // Clean up idle notify subscriptions owned by this client
-        self.idle_notify.notifications.retain(|n| {
-            n.resource.client().map_or(true, |c| c.id() != client)
-        });
+        self.idle_notify
+            .notifications
+            .retain(|n| n.resource.client().map_or(true, |c| c.id() != client));
         // Clean up input timestamp subscriptions
-        self.input_timestamps.resources.retain(|(r, _kind)| {
-            r.client().map_or(true, |c| c.id() != client)
-        });
+        self.input_timestamps
+            .resources
+            .retain(|(r, _kind)| r.client().map_or(true, |c| c.id() != client));
     }
 }
 
@@ -1784,9 +1924,8 @@ impl ProtocolState for XdgState {
     fn client_disconnected(&mut self, client: wayland_server::backend::ClientId) {
         use wayland_server::Resource;
         // Clean up shell resources owned by this client
-        self.shell_resources.retain(|_id, res| {
-            res.client().map_or(true, |c| c.id() != client)
-        });
+        self.shell_resources
+            .retain(|_id, res| res.client().map_or(true, |c| c.id() != client));
     }
 }
 
@@ -1795,7 +1934,10 @@ impl ProtocolState for DataDeviceState {
         use wayland_server::Resource;
         // Clean up data devices owned by this client
         self.devices.retain(|_id, device_data| {
-            device_data.resource.client().map_or(true, |c| c.id() != client)
+            device_data
+                .resource
+                .client()
+                .map_or(true, |c| c.id() != client)
         });
         // Clear drag if it belongs to disconnecting client
         if self.drag.is_some() {

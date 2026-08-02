@@ -5,13 +5,11 @@
 //! icon to the specified toplevel's window metadata.
 
 use std::collections::HashMap;
-use wayland_server::{
-    Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, New, Resource,
-};
 use wayland_protocols::xdg::toplevel_icon::v1::server::{
-    xdg_toplevel_icon_v1::{self, XdgToplevelIconV1},
     xdg_toplevel_icon_manager_v1::{self, XdgToplevelIconManagerV1},
+    xdg_toplevel_icon_v1::{self, XdgToplevelIconV1},
 };
+use wayland_server::{Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, New, Resource};
 
 use crate::core::state::CompositorState;
 
@@ -73,7 +71,11 @@ impl Dispatch<XdgToplevelIconManagerV1, ()> for CompositorState {
             xdg_toplevel_icon_manager_v1::Request::CreateIcon { id } => {
                 let icon = data_init.init(id, ());
                 let icon_id = icon.id().protocol_id();
-                state.xdg.toplevel_icon.pending_icons.insert(icon_id, IconData::default());
+                state
+                    .xdg
+                    .toplevel_icon
+                    .pending_icons
+                    .insert(icon_id, IconData::default());
                 tracing::debug!("Created toplevel icon {}", icon_id);
             }
             xdg_toplevel_icon_manager_v1::Request::SetIcon { toplevel, icon } => {
@@ -81,13 +83,16 @@ impl Dispatch<XdgToplevelIconManagerV1, ()> for CompositorState {
                 if let Some(icon_res) = icon {
                     let icon_id = icon_res.id().protocol_id();
                     if let Some(icon_data) = state.xdg.toplevel_icon.pending_icons.get(&icon_id) {
-                        state.xdg.toplevel_icon.toplevel_icons.insert(
-                            toplevel_id,
-                            icon_data.buffers.clone(),
-                        );
+                        state
+                            .xdg
+                            .toplevel_icon
+                            .toplevel_icons
+                            .insert(toplevel_id, icon_data.buffers.clone());
                         tracing::debug!(
                             "Applied icon {} ({} buffers) to toplevel {}",
-                            icon_id, icon_data.buffers.len(), toplevel_id
+                            icon_id,
+                            icon_data.buffers.len(),
+                            toplevel_id
                         );
                     }
                 } else {
@@ -124,7 +129,12 @@ impl Dispatch<XdgToplevelIconV1, ()> for CompositorState {
                 let buffer_id = buffer.id().protocol_id();
                 if let Some(icon_data) = state.xdg.toplevel_icon.pending_icons.get_mut(&icon_id) {
                     icon_data.buffers.push(IconBuffer { buffer_id, scale });
-                    tracing::debug!("Icon {} added buffer {} at scale {}", icon_id, buffer_id, scale);
+                    tracing::debug!(
+                        "Icon {} added buffer {} at scale {}",
+                        icon_id,
+                        buffer_id,
+                        scale
+                    );
                 }
             }
             xdg_toplevel_icon_v1::Request::Destroy => {

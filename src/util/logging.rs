@@ -1,15 +1,13 @@
 //! Standardized logging utility for Wawona
-//! 
+//!
 //! This module provides the `wlog!` macro which ensures all Rust logs
 //! follow the `YYYY-MM-DD HH:MM:SS [MODULE] Message` format.
-
-
 
 #[macro_export]
 macro_rules! wlog {
     ($module:expr, $($arg:tt)*) => {{
         let now = chrono::Local::now();
-        eprintln!("{} [{}] {}", 
+        eprintln!("{} [{}] {}",
             now.format("%Y-%m-%d %H:%M:%S"),
             $module,
             format!($($arg)*)
@@ -25,7 +23,7 @@ macro_rules! wtrace {
         #[cfg(feature = "verbose-logs")]
         {
             let now = chrono::Local::now();
-            eprintln!("{} [{}] {}", 
+            eprintln!("{} [{}] {}",
                 now.format("%Y-%m-%d %H:%M:%S"),
                 $module,
                 format!($($arg)*)

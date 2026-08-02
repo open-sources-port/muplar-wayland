@@ -3,13 +3,11 @@
 //! This implements the org_kde_kwin_server_decoration protocol.
 //! It allows clients to negotiate decoration mode (CSD vs SSD).
 
-use wayland_server::{
-    Dispatch, DisplayHandle, GlobalDispatch, Resource,
-};
 use crate::core::wayland::protocol::server::org_kde_kwin_server_decoration::{
+    org_kde_kwin_server_decoration::{self, Mode, OrgKdeKwinServerDecoration},
     org_kde_kwin_server_decoration_manager::{self, OrgKdeKwinServerDecorationManager},
-    org_kde_kwin_server_decoration::{self, OrgKdeKwinServerDecoration, Mode},
 };
+use wayland_server::{Dispatch, DisplayHandle, GlobalDispatch, Resource};
 
 use crate::core::state::{CompositorState, DecorationPolicy};
 use crate::core::wayland::xdg::decoration::ToplevelDecorationData;
@@ -21,7 +19,9 @@ use crate::core::window::DecorationMode;
 
 pub struct KdeDecorationManagerGlobal;
 
-impl GlobalDispatch<OrgKdeKwinServerDecorationManager, KdeDecorationManagerGlobal> for CompositorState {
+impl GlobalDispatch<OrgKdeKwinServerDecorationManager, KdeDecorationManagerGlobal>
+    for CompositorState
+{
     fn bind(
         _state: &mut Self,
         _handle: &DisplayHandle,
@@ -48,30 +48,43 @@ impl Dispatch<OrgKdeKwinServerDecorationManager, ()> for CompositorState {
         match request {
             org_kde_kwin_server_decoration_manager::Request::Create { id, surface } => {
                 let surface_id = surface.id().protocol_id();
-                
+
                 // Initialize the decoration resource
                 let decoration = data_init.init(id, surface_id);
-                
+
                 // Determine the default mode based on policy
                 let default_mode = match state.decoration_policy {
                     DecorationPolicy::PreferClient => Mode::Client,
                     DecorationPolicy::PreferServer => Mode::Server,
                     DecorationPolicy::ForceServer => Mode::Server,
                 };
-                
+
                 // Track the decoration in state
                 // We need to find the window ID first. Since this protocol uses surface, we look it up.
                 let client_id = _client.id();
                 if let Some(window_id) = state.surface_to_window.get(&surface_id).copied() {
-                    let decoration_data = ToplevelDecorationData::new_kde(window_id, decoration.clone());
-                    state.xdg.decoration.decorations.insert((client_id, decoration.id().protocol_id()), decoration_data);
+                    let decoration_data =
+                        ToplevelDecorationData::new_kde(window_id, decoration.clone());
+                    state
+                        .xdg
+                        .decoration
+                        .decorations
+                        .insert((client_id, decoration.id().protocol_id()), decoration_data);
                     tracing::debug!("Registered KDE decoration for window {}", window_id);
                 } else {
-                    tracing::warn!("Created KDE decoration for surface {} with no window", surface_id);
+                    tracing::warn!(
+                        "Created KDE decoration for surface {} with no window",
+                        surface_id
+                    );
                 }
 
-                crate::wlog!(crate::util::logging::COMPOSITOR, "Created KDE decoration for surface {}: default_mode={:?}", surface_id, default_mode);
-                
+                crate::wlog!(
+                    crate::util::logging::COMPOSITOR,
+                    "Created KDE decoration for surface {}: default_mode={:?}",
+                    surface_id,
+                    default_mode
+                );
+
                 // Notify the client of the initial mode
                 decoration.mode(default_mode);
             }
@@ -95,27 +108,28 @@ impl Dispatch<OrgKdeKwinServerDecoration, u32> for CompositorState {
         _data_init: &mut wayland_server::DataInit<'_, Self>,
     ) {
         let surface_id = *_data;
-        
+
         match request {
             org_kde_kwin_server_decoration::Request::RequestMode { mode } => {
                 let requested_mode = match mode {
                     wayland_server::WEnum::Value(m) => m,
                     wayland_server::WEnum::Unknown(_) => Mode::Client,
                 };
-                
+
                 tracing::debug!("Client requests KDE decoration mode: {:?}", requested_mode);
-                
+
                 // Apply policy
                 let actual_mode = match state.decoration_policy {
                     DecorationPolicy::ForceServer => Mode::Server,
                     _ => requested_mode,
                 };
-                
+
                 // Update window state if we can find the window for this surface
                 let mut window_id_to_configure = None;
                 let mut new_decoration_mode = None;
                 let client_id = _client.id();
-                if let Some(surface_data) = state.xdg.surfaces.get(&(client_id.clone(), surface_id)) {
+                if let Some(surface_data) = state.xdg.surfaces.get(&(client_id.clone(), surface_id))
+                {
                     if let Some(window_id) = surface_data.window_id {
                         window_id_to_configure = Some(window_id);
                         let new_mode = if actual_mode == Mode::Server {
@@ -140,9 +154,13 @@ impl Dispatch<OrgKdeKwinServerDecoration, u32> for CompositorState {
                     );
                 }
 
-                crate::wlog!(crate::util::logging::COMPOSITOR,
+                crate::wlog!(
+                    crate::util::logging::COMPOSITOR,
                     "KDE decoration mode for surface {}: {:?} (requested {:?}, policy {:?})",
-                    surface_id, actual_mode, requested_mode, state.decoration_policy
+                    surface_id,
+                    actual_mode,
+                    requested_mode,
+                    state.decoration_policy
                 );
 
                 // Confirm the mode to the client
@@ -159,7 +177,11 @@ impl Dispatch<OrgKdeKwinServerDecoration, u32> for CompositorState {
                 let dec_id = resource.id().protocol_id();
                 let client_id = _client.id();
                 let dec_id = resource.id().protocol_id();
-                state.xdg.decoration.decorations.remove(&(client_id, dec_id));
+                state
+                    .xdg
+                    .decoration
+                    .decorations
+                    .remove(&(client_id, dec_id));
                 tracing::debug!("KDE decoration released for surface {}", surface_id);
             }
             _ => {}

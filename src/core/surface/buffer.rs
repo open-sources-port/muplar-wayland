@@ -1,6 +1,4 @@
-
 use wayland_server::Resource;
-
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShmBufferData {
@@ -49,7 +47,11 @@ pub struct Buffer {
 }
 
 impl Buffer {
-    pub fn new(id: u32, buffer_type: BufferType, resource: Option<wayland_server::protocol::wl_buffer::WlBuffer>) -> Self {
+    pub fn new(
+        id: u32,
+        buffer_type: BufferType,
+        resource: Option<wayland_server::protocol::wl_buffer::WlBuffer>,
+    ) -> Self {
         Self {
             id,
             buffer_type,
@@ -63,7 +65,7 @@ impl Buffer {
         if self.released {
             return;
         }
-        
+
         if let Some(resource) = &self.resource {
             if resource.is_alive() {
                 resource.release();
@@ -74,7 +76,7 @@ impl Buffer {
         } else {
             eprintln!("[BUFFER] buf={} has NO resource, release NOT sent", self.id);
         }
-        
+
         self.released = true;
     }
 }

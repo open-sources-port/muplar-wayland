@@ -1,7 +1,6 @@
-
 use wayland_server::{
-    protocol::{wl_compositor, wl_surface, wl_region},
-    Dispatch, Resource, DisplayHandle, GlobalDispatch, WEnum,
+    protocol::{wl_compositor, wl_region, wl_surface},
+    Dispatch, DisplayHandle, GlobalDispatch, Resource, WEnum,
 };
 
 use crate::core::state::CompositorState;
@@ -20,7 +19,10 @@ impl GlobalDispatch<wl_compositor::WlCompositor, ()> for CompositorState {
         data_init: &mut wayland_server::DataInit<'_, Self>,
     ) {
         data_init.init(resource, ());
-        crate::wlog!(crate::util::logging::COMPOSITOR, "DEBUG: Compositor Bind Called");
+        crate::wlog!(
+            crate::util::logging::COMPOSITOR,
+            "DEBUG: Compositor Bind Called"
+        );
     }
 }
 
@@ -39,12 +41,18 @@ impl Dispatch<wl_compositor::WlCompositor, ()> for CompositorState {
                 let internal_id = state.next_surface_id();
                 let surface = data_init.init(id, internal_id);
                 let protocol_id = surface.id().protocol_id();
-                
+
                 // Scoped by client ID to prevent collisions between clients
                 let client_id = _client.id();
-                state.protocol_to_internal_surface.insert((client_id.clone(), protocol_id), internal_id);
-                
-                state.add_surface(Surface::new(internal_id, Some(client_id), Some(surface.clone())));
+                state
+                    .protocol_to_internal_surface
+                    .insert((client_id.clone(), protocol_id), internal_id);
+
+                state.add_surface(Surface::new(
+                    internal_id,
+                    Some(client_id),
+                    Some(surface.clone()),
+                ));
             }
             wl_compositor::Request::CreateRegion { id } => {
                 let region: wl_region::WlRegion = data_init.init(id, ());
@@ -83,9 +91,11 @@ impl Dispatch<wl_surface::WlSurface, u32> for CompositorState {
                             let mut b = b.write().unwrap();
                             // Reset released flag - client is reusing this buffer
                             b.released = false;
-                            
+
                             let client_id = resource.client();
-                            let client_outputs: Vec<_> = state.output_resources.values()
+                            let client_outputs: Vec<_> = state
+                                .output_resources
+                                .values()
                                 .filter(|o| o.client() == client_id)
                                 .cloned()
                                 .collect();
@@ -100,47 +110,94 @@ impl Dispatch<wl_surface::WlSurface, u32> for CompositorState {
 
                             surface.pending.buffer = b.buffer_type.clone();
                             surface.pending.buffer_id = Some(buffer_id);
-                            tracing::debug!("Surface {} attached buffer {} at ({}, {})", id, buffer_id, x, y);
+                            tracing::debug!(
+                                "Surface {} attached buffer {} at ({}, {})",
+                                id,
+                                buffer_id,
+                                x,
+                                y
+                            );
                         } else {
                             // If buffer not found (e.g. from another protocol), use a generic placeholder
                             surface.pending.buffer = crate::core::surface::BufferType::None;
                             surface.pending.buffer_id = Some(buffer_id); // Still track the ID
                         }
                     } else {
-
                         surface.pending.buffer = crate::core::surface::BufferType::None;
                         surface.pending.buffer_id = None;
                         tracing::debug!("Surface {} detached buffer", id);
                     }
                 }
             }
-            wl_surface::Request::Damage { x, y, width, height } => {
+            wl_surface::Request::Damage {
+                x,
+                y,
+                width,
+                height,
+            } => {
                 let id = *data;
-                crate::wtrace!(crate::util::logging::COMPOSITOR, "Surface {} damage (local): x={}, y={}, width={}, height={}", id, x, y, width, height);
+                crate::wtrace!(
+                    crate::util::logging::COMPOSITOR,
+                    "Surface {} damage (local): x={}, y={}, width={}, height={}",
+                    id,
+                    x,
+                    y,
+                    width,
+                    height
+                );
                 if let Some(surface) = state.get_surface(id) {
                     let mut surface = surface.write().unwrap();
-                    surface.pending.damage.push(crate::core::surface::damage::DamageRegion {
-                        x, y, width, height
-                    });
+                    surface
+                        .pending
+                        .damage
+                        .push(crate::core::surface::damage::DamageRegion {
+                            x,
+                            y,
+                            width,
+                            height,
+                        });
                 }
             }
-            wl_surface::Request::DamageBuffer { x, y, width, height } => {
+            wl_surface::Request::DamageBuffer {
+                x,
+                y,
+                width,
+                height,
+            } => {
                 let id = *data;
-                crate::wtrace!(crate::util::logging::COMPOSITOR, "Surface {} damage (buffer): x={}, y={}, width={}, height={}", id, x, y, width, height);
+                crate::wtrace!(
+                    crate::util::logging::COMPOSITOR,
+                    "Surface {} damage (buffer): x={}, y={}, width={}, height={}",
+                    id,
+                    x,
+                    y,
+                    width,
+                    height
+                );
                 if let Some(surface) = state.get_surface(id) {
                     let mut surface = surface.write().unwrap();
-                    surface.pending.damage.push(crate::core::surface::damage::DamageRegion {
-                        x, y, width, height
-                    });
+                    surface
+                        .pending
+                        .damage
+                        .push(crate::core::surface::damage::DamageRegion {
+                            x,
+                            y,
+                            width,
+                            height,
+                        });
                 }
             }
             wl_surface::Request::Frame { callback } => {
                 let surface_id = *data;
-                let cb: wayland_server::protocol::wl_callback::WlCallback = data_init.init(callback, ());
-                
+                let cb: wayland_server::protocol::wl_callback::WlCallback =
+                    data_init.init(callback, ());
+
                 // Queue the callback to be sent after the next frame is rendered
                 state.queue_frame_callback(surface_id, cb);
-                tracing::debug!("wl_surface.frame: queued callback for surface {}", surface_id);
+                tracing::debug!(
+                    "wl_surface.frame: queued callback for surface {}",
+                    surface_id
+                );
             }
             wl_surface::Request::SetInputRegion { region } => {
                 let id = *data;
@@ -215,9 +272,11 @@ impl Dispatch<wl_surface::WlSurface, u32> for CompositorState {
     ) {
         let surface_id = *data;
         let protocol_id = resource.id().protocol_id();
-        state.protocol_to_internal_surface.remove(&(client, protocol_id));
+        state
+            .protocol_to_internal_surface
+            .remove(&(client, protocol_id));
         state.remove_surface(surface_id);
-        
+
         // Also remove pointer/keyboard focus if they were on this surface
         if state.seat.pointer.focus == Some(surface_id) {
             state.seat.pointer.focus = None;
@@ -225,8 +284,12 @@ impl Dispatch<wl_surface::WlSurface, u32> for CompositorState {
         if state.seat.keyboard.focus == Some(surface_id) {
             state.seat.keyboard.focus = None;
         }
-        
-        crate::wlog!(crate::util::logging::COMPOSITOR, "Surface resource destroyed: surface_id={}", surface_id);
+
+        crate::wlog!(
+            crate::util::logging::COMPOSITOR,
+            "Surface resource destroyed: surface_id={}",
+            surface_id
+        );
     }
 }
 
@@ -243,12 +306,24 @@ impl Dispatch<wl_region::WlRegion, ()> for CompositorState {
         let region_id = resource.id().protocol_id();
         let client_id = _client.id();
         match request {
-            wl_region::Request::Add { x, y, width, height } => {
+            wl_region::Request::Add {
+                x,
+                y,
+                width,
+                height,
+            } => {
                 if let Some(region) = state.regions.get_mut(&(client_id, region_id)) {
-                    region.push(crate::core::surface::damage::DamageRegion::new(x, y, width, height));
+                    region.push(crate::core::surface::damage::DamageRegion::new(
+                        x, y, width, height,
+                    ));
                 }
             }
-            wl_region::Request::Subtract { x: sx, y: sy, width: sw, height: sh } => {
+            wl_region::Request::Subtract {
+                x: sx,
+                y: sy,
+                width: sw,
+                height: sh,
+            } => {
                 if let Some(region) = state.regions.get_mut(&(client_id, region_id)) {
                     // Subtract rect (sx,sy,sw,sh) from each existing rect in the region.
                     // Each rect that intersects the subtract area is split into up to 4 pieces.
@@ -270,25 +345,37 @@ impl Dispatch<wl_region::WlRegion, ()> for CompositorState {
                         // Top strip
                         if rect.y < iy1 {
                             new_rects.push(crate::core::surface::damage::DamageRegion::new(
-                                rect.x, rect.y, rect.width, iy1 - rect.y,
+                                rect.x,
+                                rect.y,
+                                rect.width,
+                                iy1 - rect.y,
                             ));
                         }
                         // Bottom strip
                         if ry2 > iy2 {
                             new_rects.push(crate::core::surface::damage::DamageRegion::new(
-                                rect.x, iy2, rect.width, ry2 - iy2,
+                                rect.x,
+                                iy2,
+                                rect.width,
+                                ry2 - iy2,
                             ));
                         }
                         // Left strip (between top and bottom)
                         if rect.x < ix1 {
                             new_rects.push(crate::core::surface::damage::DamageRegion::new(
-                                rect.x, iy1, ix1 - rect.x, iy2 - iy1,
+                                rect.x,
+                                iy1,
+                                ix1 - rect.x,
+                                iy2 - iy1,
                             ));
                         }
                         // Right strip (between top and bottom)
                         if rx2 > ix2 {
                             new_rects.push(crate::core::surface::damage::DamageRegion::new(
-                                ix2, iy1, rx2 - ix2, iy2 - iy1,
+                                ix2,
+                                iy1,
+                                rx2 - ix2,
+                                iy2 - iy1,
                             ));
                         }
                     }
@@ -335,9 +422,12 @@ impl Dispatch<wayland_server::protocol::wl_shm::WlShm, ()> for CompositorState {
                 let pool = data_init.init(id, ());
                 let pool_id = pool.id().protocol_id();
                 let client_id = _client.id();
-                
+
                 // Store the pool for later mmap access to pixel data
-                state.shm_pools.insert((client_id, pool_id), crate::core::state::ShmPool::new(fd, size));
+                state.shm_pools.insert(
+                    (client_id, pool_id),
+                    crate::core::state::ShmPool::new(fd, size),
+                );
                 tracing::debug!("wl_shm.create_pool: id={}, size={}", pool_id, size);
             }
             _ => {}
@@ -356,12 +446,17 @@ impl Dispatch<wayland_server::protocol::wl_shm_pool::WlShmPool, ()> for Composit
         data_init: &mut wayland_server::DataInit<'_, Self>,
     ) {
         match request {
-            wayland_server::protocol::wl_shm_pool::Request::CreateBuffer { 
-                id, offset, width, height, stride, format 
+            wayland_server::protocol::wl_shm_pool::Request::CreateBuffer {
+                id,
+                offset,
+                width,
+                height,
+                stride,
+                format,
             } => {
                 let buffer_res = data_init.init(id, ());
                 let buffer_id = buffer_res.id().protocol_id();
-                
+
                 // Track SHM buffer metadata
                 let shm_data = crate::core::surface::ShmBufferData {
                     width,
@@ -374,16 +469,24 @@ impl Dispatch<wayland_server::protocol::wl_shm_pool::WlShmPool, ()> for Composit
                     offset,
                     pool_id: resource.id().protocol_id(),
                 };
-                
+
                 let client_id = _client.id();
-                state.add_buffer(client_id.clone(), crate::core::surface::Buffer::new(
-                    buffer_id,
-                    crate::core::surface::BufferType::Shm(shm_data),
-                    Some(buffer_res.clone())
-                ));
-                
+                state.add_buffer(
+                    client_id.clone(),
+                    crate::core::surface::Buffer::new(
+                        buffer_id,
+                        crate::core::surface::BufferType::Shm(shm_data),
+                        Some(buffer_res.clone()),
+                    ),
+                );
+
                 // Store buffer resource for release events
-                tracing::debug!("wl_shm_pool.create_buffer: {}x{} (id={})", width, height, buffer_id);
+                tracing::debug!(
+                    "wl_shm_pool.create_buffer: {}x{} (id={})",
+                    width,
+                    height,
+                    buffer_id
+                );
             }
             wayland_server::protocol::wl_shm_pool::Request::Resize { size } => {
                 let pool_id = resource.id().protocol_id();

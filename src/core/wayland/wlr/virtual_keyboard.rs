@@ -1,11 +1,8 @@
-use wayland_server::{
-    Dispatch, DisplayHandle, GlobalDispatch, Resource,
-};
+use wayland_server::{Dispatch, DisplayHandle, GlobalDispatch, Resource};
 
 use crate::core::state::CompositorState;
 use crate::core::wayland::protocol::wlroots::zwp_virtual_keyboard_v1::{
-    zwp_virtual_keyboard_manager_v1,
-    zwp_virtual_keyboard_v1,
+    zwp_virtual_keyboard_manager_v1, zwp_virtual_keyboard_v1,
 };
 
 pub struct VirtualKeyboardManagerData;
@@ -23,8 +20,9 @@ impl VirtualKeyboardState {
     }
 }
 
-
-impl GlobalDispatch<zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1, ()> for CompositorState {
+impl GlobalDispatch<zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1, ()>
+    for CompositorState
+{
     fn bind(
         _state: &mut Self,
         _handle: &DisplayHandle,
@@ -37,7 +35,9 @@ impl GlobalDispatch<zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1
     }
 }
 
-impl Dispatch<zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1, ()> for CompositorState {
+impl Dispatch<zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1, ()>
+    for CompositorState
+{
     fn request(
         state: &mut Self,
         _client: &wayland_server::Client,
@@ -52,7 +52,7 @@ impl Dispatch<zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1, ()> 
                 let seat_name = seat.data::<String>().cloned().unwrap_or_default();
                 let keyboard_res = data_init.init(id, ());
                 let resource_id = keyboard_res.id().protocol_id();
-                
+
                 let keyboard_state = VirtualKeyboardState::new(Some(seat_name));
                 state.add_virtual_keyboard(_client.id(), resource_id, keyboard_state);
             }
@@ -72,12 +72,24 @@ impl Dispatch<zwp_virtual_keyboard_v1::ZwpVirtualKeyboardV1, ()> for CompositorS
         _data_init: &mut wayland_server::DataInit<'_, Self>,
     ) {
         match request {
-            zwp_virtual_keyboard_v1::Request::Keymap { format, fd: _, size } => {
-                tracing::debug!("Virtual keyboard keymap: format={:?}, size={}", format, size);
+            zwp_virtual_keyboard_v1::Request::Keymap {
+                format,
+                fd: _,
+                size,
+            } => {
+                tracing::debug!(
+                    "Virtual keyboard keymap: format={:?}, size={}",
+                    format,
+                    size
+                );
                 // In a full implementation, we would parse this keymap with xkbcommon
                 // and use it to translate keycodes from this virtual device.
             }
-            zwp_virtual_keyboard_v1::Request::Key { time, key, state: key_state } => {
+            zwp_virtual_keyboard_v1::Request::Key {
+                time,
+                key,
+                state: key_state,
+            } => {
                 tracing::debug!("Virtual keyboard key: {} is {} at {}", key, key_state, time);
                 let key_state_val = match key_state {
                     1 => wayland_server::protocol::wl_keyboard::KeyState::Pressed,
@@ -85,10 +97,18 @@ impl Dispatch<zwp_virtual_keyboard_v1::ZwpVirtualKeyboardV1, ()> for CompositorS
                 };
                 state.inject_key(key, key_state_val, time);
             }
-            zwp_virtual_keyboard_v1::Request::Modifiers { mods_depressed, mods_latched, mods_locked, group } => {
+            zwp_virtual_keyboard_v1::Request::Modifiers {
+                mods_depressed,
+                mods_latched,
+                mods_locked,
+                group,
+            } => {
                 tracing::debug!(
                     "Virtual keyboard modifiers: depressed={}, latched={}, locked={}, group={}",
-                    mods_depressed, mods_latched, mods_locked, group
+                    mods_depressed,
+                    mods_latched,
+                    mods_locked,
+                    group
                 );
                 state.inject_modifiers(mods_depressed, mods_latched, mods_locked, group);
             }

@@ -41,11 +41,7 @@ struct WWNMachinesGridView: View {
           .buttonStyle(.plain)
         }
       }
-      #if os(macOS)
       .listStyle(.sidebar)
-      #else
-      .listStyle(.insetGrouped)
-      #endif
       .navigationTitle("Control Panel")
     } detail: {
       ScrollView {
@@ -111,29 +107,17 @@ struct WWNMachinesGridView: View {
       WWNMachineEditorView(title: "Add Machine Profile", initial: nil) { profile in
         model.upsert(profile)
       }
-      #if os(iOS)
-      .presentationDetents([.medium, .large])
-      .presentationContentInteraction(.scrolls)
-      #endif
     }
     .sheet(isPresented: $isEditing) {
       WWNMachineEditorView(title: "Edit Machine Profile", initial: editingProfile) { profile in
         model.upsert(profile)
       }
-      #if os(iOS)
-      .presentationDetents([.medium, .large])
-      .presentationContentInteraction(.scrolls)
-      #endif
     }
     .animation(.spring(duration: 0.42, bounce: 0.26), value: visibleProfiles.count)
   }
 
   private var adaptiveCardWidth: CGFloat {
-    #if os(iOS)
-    300
-    #else
     340
-    #endif
   }
 
   private var visibleProfiles: [WWNMachineProfile] {
@@ -216,24 +200,7 @@ struct WWNMachinesGridView: View {
   }
 }
 
-#if os(iOS)
-import UIKit
 
-@objc(WWNMachinesHostingBridge)
-@objcMembers
-final class WWNMachinesHostingBridge: NSObject {
-  @objc(buildIOSMachinesControllerWithOnConnect:)
-  static func buildIOSMachinesController(onConnect: (() -> Void)?) -> UIViewController {
-    let root = WWNMachinesGridView(onConnect: onConnect, onOpenSettings: nil)
-    let hosting = UIHostingController(rootView: root)
-    let nav = UINavigationController(rootViewController: hosting)
-    nav.modalPresentationStyle = .fullScreen
-    return nav
-  }
-}
-#endif
-
-#if os(macOS)
 import AppKit
 
 @objc(WWNMachinesHostingBridge)
@@ -257,4 +224,3 @@ final class WWNMachinesHostingBridge: NSObject {
     return NSWindowController(window: window)
   }
 }
-#endif

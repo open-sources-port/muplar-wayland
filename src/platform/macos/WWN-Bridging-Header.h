@@ -13,8 +13,6 @@
 #import "ui/Machines/WWNMachineProfileStore.h"
 #import "ui/Settings/WWNWaypipeRunner.h"
 #import "ui/Settings/WWNPreferencesManager.h"
-#if !TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
 #import "ui/Settings/WWNPreferences.h"
-#endif
 
 #endif /* WWN_Bridging_Header_h */

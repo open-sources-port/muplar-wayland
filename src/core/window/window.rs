@@ -1,5 +1,3 @@
-
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DecorationMode {
     ClientSide,
@@ -19,7 +17,7 @@ pub struct Window {
     pub decoration_mode: DecorationMode,
     pub surface_id: u32,
     pub app_id: String,
-    
+
     // Window state
     pub maximized: bool,
     pub minimized: bool,
@@ -28,14 +26,14 @@ pub struct Window {
     pub resizing: bool,
     /// Whether this window is a modal dialog
     pub modal: bool,
-    
+
     /// CSD geometry offset: the (x, y) origin of the content area within the
     /// surface buffer.  When the window is cropped to exclude the CSD shadow,
     /// pointer coordinates from the platform must be shifted by this offset to
     /// produce correct surface-local coordinates.
     pub geometry_x: i32,
     pub geometry_y: i32,
-    
+
     /// IDs of outputs this window is visible on
     pub outputs: Vec<u32>,
 }

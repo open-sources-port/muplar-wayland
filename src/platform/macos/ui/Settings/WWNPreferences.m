@@ -14,11 +14,7 @@
 #import <objc/runtime.h>
 
 // System headers removed as they are now used in WWNWaypipeRunner or unused
-#if TARGET_OS_IPHONE
-#import <UIKit/UIKit.h>
-#else
 #import <AppKit/AppKit.h>
-#endif
 #import <arpa/inet.h>
 #import <errno.h>
 #import <ifaddrs.h>
@@ -29,50 +25,26 @@
 #import <sys/types.h>
 #import <sys/wait.h>
 #import <unistd.h>
-#if TARGET_OS_IPHONE
-#import "../../platform/ios/WWNIOSVersions.h"
-#import <libssh2.h>
-#endif
 
 #ifndef WAWONA_VERSION
-#if TARGET_OS_IPHONE && defined(WAWONA_VERSION_STRING)
-#define WAWONA_VERSION WAWONA_VERSION_STRING
-#else
 #define WAWONA_VERSION "0.0.0-unknown"
-#endif
 #endif
 
 #ifndef WAWONA_WAYLAND_VERSION
-#if TARGET_OS_IPHONE && defined(WAWONA_WAYLAND_VERSION_STRING)
-#define WAWONA_WAYLAND_VERSION WAWONA_WAYLAND_VERSION_STRING
-#else
 #define WAWONA_WAYLAND_VERSION "Bundled"
-#endif
 #endif
 
 // Similar logic for other versions...
 #ifndef WAWONA_WAYPIPE_VERSION
-#if TARGET_OS_IPHONE && defined(WAWONA_WAYPIPE_VERSION_STRING)
-#define WAWONA_WAYPIPE_VERSION WAWONA_WAYPIPE_VERSION_STRING
-#else
 #define WAWONA_WAYPIPE_VERSION "unknown"
-#endif
 #endif
 
 #ifndef WAWONA_MESA_VERSION
-#if TARGET_OS_IPHONE && defined(WAWONA_MESA_VERSION_STRING)
-#define WAWONA_MESA_VERSION WAWONA_MESA_VERSION_STRING
-#else
 #define WAWONA_MESA_VERSION "Bundled"
-#endif
 #endif
 
 #ifndef WAWONA_EPOLL_SHIM_VERSION
-#if TARGET_OS_IPHONE && defined(WAWONA_EPOLL_SHIM_VERSION_STRING)
-#define WAWONA_EPOLL_SHIM_VERSION WAWONA_EPOLL_SHIM_VERSION_STRING
-#else
 #define WAWONA_EPOLL_SHIM_VERSION "Bundled"
-#endif
 #endif
 
 #ifndef WAWONA_LIBSSH2_VERSION
@@ -101,7 +73,6 @@
 
 // MARK: - Helper Class Interfaces
 
-#if !TARGET_OS_IPHONE
 @interface WWNPreferencesSidebar
     : NSViewController <NSOutlineViewDataSource, NSOutlineViewDelegate>
 @property(nonatomic, weak) WWNPreferences *parent;
@@ -113,26 +84,17 @@
 @property(nonatomic, strong) WWNPreferencesSection *section;
 @property(nonatomic, strong) NSTableView *tableView;
 @end
-#endif
 
 // MARK: - Main Class Extension
 
 @interface WWNPreferences () <WWNWaypipeRunnerDelegate
-#if TARGET_OS_IPHONE
-                              ,
-                              UITextFieldDelegate
-#else
                               ,
                               NSTextFieldDelegate, NSToolbarDelegate
-#endif
                               >
 @property(nonatomic, strong, readwrite)
     NSArray<WWNPreferencesSection *> *sections;
 @property(nonatomic, strong) NSMutableString *waypipeStatusText;
 @property(nonatomic, assign) BOOL waypipeMarkedConnected;
-#if TARGET_OS_IPHONE
-@property(nonatomic, strong) UIAlertController *waypipeStatusAlert;
-#else
 @property(nonatomic, strong) NSSplitViewController *splitVC;
 @property(nonatomic, strong) WWNPreferencesSidebar *sidebar;
 @property(nonatomic, strong) WWNPreferencesContent *content;
@@ -140,7 +102,6 @@
 @property(nonatomic, strong) NSPanel *waypipeStatusPanel;
 @property(nonatomic, strong) NSTextView *waypipeStatusTextView;
 @property(nonatomic, strong) NSButton *waypipeStopButton;
-#endif
 - (NSArray<WWNPreferencesSection *> *)buildSections;
 - (void)runWaypipe;
 - (NSString *)localIPAddress;
@@ -150,79 +111,14 @@
 - (void)pingSSHHost;
 - (void)testSSHConnection;
 - (void)debouncedReloadData;
-#if !TARGET_OS_IPHONE
 - (void)showSection:(NSInteger)idx;
 - (void)toggleMacOSPasswordVisibility:(NSButton *)sender;
-#endif
 @end
 
 // MARK: - Main Implementation
 
 @implementation WWNPreferences
 
-#if TARGET_OS_IPHONE
-/// Load the About-header logo using the same cascading strategy as macOS:
-/// always prefer the dark variant, with direct bundle-path fallback to
-/// bypass iOS's @1x scale-suffix interpretation.
-static UIImage *WWNAboutLogo(void) {
-  NSBundle *bundle = [NSBundle mainBundle];
-  NSFileManager *fm = [NSFileManager defaultManager];
-  UIImage *img = nil;
-
-  img = [UIImage imageNamed:@"Wawona-iOS-Dark-1024x1024@1x.png"];
-  if (img)
-    return img;
-
-  NSString *path =
-      [bundle pathForResource:@"Wawona-iOS-Dark-1024x1024@1x" ofType:@"png"];
-  if (path) {
-    img = [UIImage imageWithContentsOfFile:path];
-    if (img)
-      return img;
-  }
-
-  path = [bundle pathForResource:@"Wawona-iOS-Dark-1024x1024" ofType:@"png"];
-  if (path) {
-    img = [UIImage imageWithContentsOfFile:path];
-    if (img)
-      return img;
-  }
-
-  NSString *bundleRoot = [bundle bundlePath];
-  NSString *direct = [bundleRoot
-      stringByAppendingPathComponent:@"Wawona-iOS-Dark-1024x1024@1x.png"];
-  if ([fm fileExistsAtPath:direct]) {
-    img = [UIImage imageWithContentsOfFile:direct];
-    if (img)
-      return img;
-  }
-
-  direct = [bundleRoot
-      stringByAppendingPathComponent:@"Wawona-iOS-Dark-1024x1024.png"];
-  if ([fm fileExistsAtPath:direct]) {
-    img = [UIImage imageWithContentsOfFile:direct];
-    if (img)
-      return img;
-  }
-
-  img = [UIImage imageNamed:@"Wawona"];
-  if (img)
-    return img;
-
-  path = [bundle pathForResource:@"Wawona" ofType:@"png"];
-  if (path) {
-    img = [UIImage imageWithContentsOfFile:path];
-    if (img)
-      return img;
-  }
-
-  img = [UIImage imageNamed:@"Wawona-iOS-Light-1024x1024@1x.png"];
-  if (img)
-    return img;
-
-  return nil;
-}
-#endif
 
 + (instancetype)sharedPreferences {
   static WWNPreferences *sharedInstance = nil;
@@ -233,35 +129,7 @@ static UIImage *WWNAboutLogo(void) {
   return sharedInstance;
 }
 
-#if TARGET_OS_IPHONE
-/// Safely present an alert, avoiding "presentation in progress" errors.
-/// If another view controller is already being presented, dismiss it first.
-- (void)presentSafeAlertWithTitle:(NSString *)title
-                          message:(NSString *)message {
-  UIAlertController *alert =
-      [UIAlertController alertControllerWithTitle:title
-                                          message:message
-                                   preferredStyle:UIAlertControllerStyleAlert];
-  [alert addAction:[UIAlertAction actionWithTitle:@"OK"
-                                            style:UIAlertActionStyleDefault
-                                          handler:nil]];
 
-  UIViewController *presenter = self;
-  if (presenter.presentedViewController) {
-    [presenter.presentedViewController
-        dismissViewControllerAnimated:NO
-                           completion:^{
-                             [presenter presentViewController:alert
-                                                     animated:YES
-                                                   completion:nil];
-                           }];
-  } else {
-    [presenter presentViewController:alert animated:YES completion:nil];
-  }
-}
-#endif
-
-#if !TARGET_OS_IPHONE
 - (instancetype)init {
   self = [super init];
   if (self) {
@@ -275,41 +143,13 @@ static UIImage *WWNAboutLogo(void) {
   }
   return self;
 }
-#else
-- (instancetype)init {
-  self = [super initWithStyle:UITableViewStyleInsetGrouped];
-  if (self) {
-    self.title = @"Settings";
-    [WWNWaypipeRunner sharedRunner].delegate = self;
-    self.sections = [self buildSections];
-    if (self.sections.count > 0) {
-      self.activeSection = self.sections[0];
-    }
-    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc]
-        initWithBarButtonSystemItem:UIBarButtonSystemItemDone
-                             target:self
-                             action:@selector(dismissSelf)];
-    [[NSNotificationCenter defaultCenter]
-        addObserver:self
-           selector:@selector(defaultsChanged:)
-               name:NSUserDefaultsDidChangeNotification
-             object:nil];
-  }
-  return self;
-}
-#endif
 
 - (void)defaultsChanged:(NSNotification *)notification {
   static BOOL sLastForceSSD = NO;
   static BOOL sHasCheckedForceSSD = NO;
 
   NSUserDefaults *defs = [NSUserDefaults standardUserDefaults];
-#if TARGET_OS_IPHONE
-  // iOS: CSD not supported; Force SSD is always on.
-  BOOL enabled = YES;
-#else
   BOOL enabled = [defs boolForKey:@"ForceServerSideDecorations"];
-#endif
   if ([defs objectForKey:@"ForceServerSideDecorations"] || enabled) {
     if (!sHasCheckedForceSSD || sLastForceSSD != enabled) {
       sLastForceSSD = enabled;
@@ -330,54 +170,16 @@ static UIImage *WWNAboutLogo(void) {
 
 - (void)debouncedReloadData {
   dispatch_async(dispatch_get_main_queue(), ^{
-#if TARGET_OS_IPHONE
-    if (self.tableView) {
-      [self.tableView reloadData];
-    }
-#else
     if (self.sidebar.outlineView) {
       [self.sidebar.outlineView reloadData];
     }
-#endif
   });
 }
 
-#if TARGET_OS_IPHONE
-- (void)viewDidLoad {
-  [super viewDidLoad];
-  // FIX: Remove extra top padding by setting a zero-height header
-  // Using a small non-zero width/height avoids "Failed to create image slot"
-  // errors
-  self.tableView.tableHeaderView =
-      [[UIView alloc] initWithFrame:CGRectMake(0, 0, 1.0, 1.0)];
-
-  // Modern trait change observation (replaces deprecated
-  // traitCollectionDidChange:)
-  __weak typeof(self) weakSelf = self;
-  [self registerForTraitChanges:@[ [UITraitUserInterfaceStyle class] ]
-                    withHandler:^(
-                        id<UITraitEnvironment> _Nonnull traitEnvironment,
-                        UITraitCollection *_Nonnull previousCollection) {
-                      __strong typeof(weakSelf) strongSelf = weakSelf;
-                      if (!strongSelf)
-                        return;
-                      [strongSelf.tableView reloadData];
-                    }];
-}
-
-#endif
 
 #define ITEM(t, k, ty, def, d)                                                 \
   [WWNSettingItem itemWithTitle:t key:k type:ty default:(def)desc:(d)]
 
-#if TARGET_OS_IPHONE
-- (void)setActiveSection:(WWNPreferencesSection *)activeSection {
-  _activeSection = activeSection;
-  if (self.isViewLoaded) {
-    [self.tableView reloadData];
-  }
-}
-#endif
 
 - (NSArray<WWNPreferencesSection *> *)buildSections {
   NSMutableArray *sects = [NSMutableArray array];
@@ -386,11 +188,7 @@ static UIImage *WWNAboutLogo(void) {
   WWNPreferencesSection *display = [[WWNPreferencesSection alloc] init];
   display.title = @"Display";
   display.icon = @"display";
-#if TARGET_OS_IPHONE
-  display.iconColor = [UIColor systemBlueColor];
-#else
   display.iconColor = [NSColor systemBlueColor];
-#endif
   NSMutableArray *displayItems = [NSMutableArray arrayWithArray:@[
     ITEM(@"Force Server-Side Decorations", @"ForceServerSideDecorations",
          WSettingSwitch, @NO, @"Forces macOS-style window decorations."),
@@ -398,17 +196,11 @@ static UIImage *WWNAboutLogo(void) {
          @"Matches macOS UI Scaling.")
   ]];
 
-#if TARGET_OS_IPHONE
-  // Respect Safe Area only makes sense on iOS (notch, Dynamic Island, etc.)
-  [displayItems addObject:ITEM(@"Respect Safe Area", @"RespectSafeArea",
-                               WSettingSwitch, @YES, @"Avoids notch areas.")];
-#else
   // Show macOS Cursor option only on macOS
   [displayItems insertObject:ITEM(@"Show macOS Cursor", @"RenderMacOSPointer",
                                   WSettingSwitch, @NO,
                                   @"Toggles macOS cursor visibility.")
                      atIndex:1];
-#endif
 
   display.items = displayItems;
   [sects addObject:display];
@@ -417,11 +209,7 @@ static UIImage *WWNAboutLogo(void) {
   WWNPreferencesSection *input = [[WWNPreferencesSection alloc] init];
   input.title = @"Input";
   input.icon = @"keyboard";
-#if TARGET_OS_IPHONE
-  input.iconColor = [UIColor systemPurpleColor];
-#else
   input.iconColor = [NSColor systemPurpleColor];
-#endif
   WWNSettingItem *touchInputItem =
       ITEM(@"Touch Input Type", @"TouchInputType", WSettingPopup,
            @"Multi-Touch", @"Input method for touch interactions.");
@@ -451,11 +239,7 @@ static UIImage *WWNAboutLogo(void) {
   WWNPreferencesSection *graphics = [[WWNPreferencesSection alloc] init];
   graphics.title = @"Graphics";
   graphics.icon = @"cpu";
-#if TARGET_OS_IPHONE
-  graphics.iconColor = [UIColor systemRedColor];
-#else
   graphics.iconColor = [NSColor systemRedColor];
-#endif
   WWNSettingItem *vulkanDriverItem =
       ITEM(@"Vulkan Driver", @"VulkanDriver", WSettingPopup, @"moltenvk",
            @"Select Vulkan implementation. None disables Vulkan.");
@@ -465,13 +249,8 @@ static UIImage *WWNAboutLogo(void) {
   WWNSettingItem *openGLDriverItem =
       ITEM(@"OpenGL Driver", @"OpenGLDriver", WSettingPopup, @"angle",
            @"Select OpenGL/GLES implementation. None disables OpenGL.");
-#if TARGET_OS_IPHONE || TARGET_OS_SIMULATOR
-  openGLDriverItem.options = @[ @"None", @"ANGLE" ];
-  openGLDriverItem.optionValues = @[ @"none", @"angle" ];
-#else
   openGLDriverItem.options = @[ @"None", @"ANGLE", @"MoltenGL" ];
   openGLDriverItem.optionValues = @[ @"none", @"angle", @"moltengl" ];
-#endif
 
   graphics.items = @[
     vulkanDriverItem, openGLDriverItem,
@@ -484,11 +263,7 @@ static UIImage *WWNAboutLogo(void) {
   WWNPreferencesSection *connection = [[WWNPreferencesSection alloc] init];
   connection.title = @"Connection";
   connection.icon = @"network";
-#if TARGET_OS_IPHONE
-  connection.iconColor = [UIColor systemOrangeColor];
-#else
   connection.iconColor = [NSColor systemOrangeColor];
-#endif
 
   // Build dynamic environment variable values
   NSString *socketDir = [self getSocketPath];
@@ -523,22 +298,14 @@ static UIImage *WWNAboutLogo(void) {
   WWNPreferencesSection *advanced = [[WWNPreferencesSection alloc] init];
   advanced.title = @"Advanced";
   advanced.icon = @"gearshape.2";
-#if TARGET_OS_IPHONE
-  advanced.iconColor = [UIColor systemGrayColor];
-#else
   advanced.iconColor = [NSColor systemGrayColor];
-#endif
   advanced.items = @[
     ITEM(@"Color Operations", @"ColorOperations", WSettingSwitch, @NO,
          @"Color profiles and HDR."),
     ITEM(@"Nested Compositors", @"NestedCompositorsSupport", WSettingSwitch,
          @YES, @"Support for nested compositors."),
     ITEM(@"Multiple Clients", @"MultipleClients", WSettingSwitch,
-#if TARGET_OS_IPHONE || TARGET_OS_SIMULATOR
-         @NO,
-#else
          @YES,
-#endif
          @"Allow multiple Wayland clients to connect simultaneously."),
     ITEM(@"Enable Wawona Shell", @"EnableLauncher", WSettingSwitch, @NO,
          @"Start the built-in Wayland Shell."),
@@ -555,11 +322,7 @@ static UIImage *WWNAboutLogo(void) {
   WWNPreferencesSection *machines = [[WWNPreferencesSection alloc] init];
   machines.title = @"Machines";
   machines.icon = @"server.rack";
-#if TARGET_OS_IPHONE
-  machines.iconColor = [UIColor systemCyanColor];
-#else
   machines.iconColor = [NSColor systemCyanColor];
-#endif
   machines.items = @[
     ITEM(@"Virtual Machine Provider", @"MachineVMProviderStub", WSettingText,
          @"utm-se", @"Stub setting for future VM integration."),
@@ -581,11 +344,7 @@ static UIImage *WWNAboutLogo(void) {
   WWNPreferencesSection *waypipe = [[WWNPreferencesSection alloc] init];
   waypipe.title = @"Waypipe";
   waypipe.icon = @"arrow.triangle.2.circlepath";
-#if TARGET_OS_IPHONE
-  waypipe.iconColor = [UIColor systemGreenColor];
-#else
   waypipe.iconColor = [NSColor systemGreenColor];
-#endif
 
   __weak typeof(self) weakSelf = self;
   WWNSettingItem *previewBtn =
@@ -600,10 +359,6 @@ static UIImage *WWNAboutLogo(void) {
            @"Stop the running waypipe session.");
   stopBtn.actionBlock = ^{
     [[WWNWaypipeRunner sharedRunner] stopWaypipe];
-#if TARGET_OS_IPHONE
-    [weakSelf presentSafeAlertWithTitle:@"Waypipe"
-                                message:@"Waypipe has been stopped."];
-#endif
   };
 
   WWNSettingItem *compressItem =
@@ -675,17 +430,9 @@ static UIImage *WWNAboutLogo(void) {
 
   // SSH (libssh2 on iOS, OpenSSH on macOS)
   WWNPreferencesSection *ssh = [[WWNPreferencesSection alloc] init];
-#if TARGET_OS_IPHONE
-  ssh.title = @"SSH";
-#else
   ssh.title = @"OpenSSH";
-#endif
   ssh.icon = @"lock.shield";
-#if TARGET_OS_IPHONE
-  ssh.iconColor = [UIColor systemBlueColor];
-#else
   ssh.iconColor = [NSColor systemBlueColor];
-#endif
 
   WWNSettingItem *sshAuthMethodItem =
       ITEM(@"Auth Method", @"SSHAuthMethod", WSettingPopup, @"Password",
@@ -710,20 +457,12 @@ static UIImage *WWNAboutLogo(void) {
   NSMutableArray *sshItems = [NSMutableArray array];
 
   // Version info
-#if TARGET_OS_IPHONE
-  [sshItems addObject:ITEM(@"SSH Library", nil, WSettingInfo,
-                           [self getLibSSH2Version],
-                           @"libssh2 SSH library used for connections.")];
-#else
   [sshItems addObject:ITEM(@"SSH Library", nil, WSettingInfo,
                            [self getOpenSSHVersion],
                            @"OpenSSH SSH client used for connections.")];
-#endif
-#if !TARGET_OS_IPHONE
   [sshItems addObject:ITEM(@"sshpass", nil, WSettingInfo,
                            [self getSshpassVersion],
                            @"Password auth helper for non-interactive SSH.")];
-#endif
 
   // Basic connection settings (always shown)
   [sshItems addObject:ITEM(@"SSH Host", @"SSHHost", WSettingText, @"",
@@ -742,31 +481,11 @@ static UIImage *WWNAboutLogo(void) {
                              @"SSH password.")];
   } else {
     // Public Key authentication
-#if TARGET_OS_IPHONE
-    // iOS: libssh2 - use key management instead of path
-    WWNSettingItem *keyInfoItem = ITEM(@"SSH Key", @"SSHKeyInfo", WSettingInfo,
-                                       @"", @"Tap to view or manage SSH keys.");
-    // Get the public key fingerprint or status
-    NSString *keyStatus = @"Not configured";
-    NSString *keyPath =
-        [[NSUserDefaults standardUserDefaults] stringForKey:@"SSHKeyPath"];
-    if (keyPath.length > 0) {
-      keyStatus = [keyPath lastPathComponent];
-    }
-    keyInfoItem.defaultValue = keyStatus;
-    [sshItems addObject:keyInfoItem];
-
-    // Still allow setting a key path for advanced users (e.g., imported keys)
-    [sshItems addObject:ITEM(@"Key Path", @"SSHKeyPath", WSettingText, @"",
-                             @"Path to private key (relative to app documents "
-                             @"or absolute).")];
-#else
     // macOS: Use system SSH - allow key path
     [sshItems
         addObject:ITEM(@"Key Path", @"SSHKeyPath", WSettingText,
                        @"~/.ssh/id_ed25519",
                        @"Path to private key file (e.g., ~/.ssh/id_ed25519).")];
-#endif
     // Key passphrase (for encrypted keys)
     [sshItems
         addObject:
@@ -785,11 +504,7 @@ static UIImage *WWNAboutLogo(void) {
   WWNPreferencesSection *about = [[WWNPreferencesSection alloc] init];
   about.title = @"About";
   about.icon = @"info.circle";
-#if TARGET_OS_IPHONE
-  about.iconColor = [UIColor systemPurpleColor];
-#else
   about.iconColor = [NSColor systemPurpleColor];
-#endif
 
   WWNSettingItem *headerItem =
       ITEM(@"Wawona", nil, WSettingHeader, nil,
@@ -841,11 +556,7 @@ static UIImage *WWNAboutLogo(void) {
   about.items = @[
     headerItem, ITEM(@"Version", nil, WSettingInfo, [self getWWNVersion], nil),
     ITEM(@"Platform", nil, WSettingInfo,
-#if TARGET_OS_IPHONE
-         @"iOS",
-#else
          @"macOS",
-#endif
          nil),
     authorItem, websiteItem, githubItem, xItem, linkedinItem, kofiItem,
     donateItem
@@ -856,11 +567,7 @@ static UIImage *WWNAboutLogo(void) {
   WWNPreferencesSection *deps = [[WWNPreferencesSection alloc] init];
   deps.title = @"Dependencies";
   deps.icon = @"shippingbox";
-#if TARGET_OS_IPHONE
-  deps.iconColor = [UIColor systemBrownColor];
-#else
   deps.iconColor = [NSColor systemBrownColor];
-#endif
 
   NSMutableArray *depItems = [NSMutableArray array];
 
@@ -868,19 +575,11 @@ static UIImage *WWNAboutLogo(void) {
   [depItems
       addObject:ITEM(@"Waypipe", nil, WSettingInfo, [self getWaypipeVersion],
                      @"Remote Wayland display proxy")];
-#if TARGET_OS_IPHONE
-  [depItems
-      addObject:ITEM(@"libssh2", nil, WSettingInfo, [self getLibSSH2Version],
-                     @"SSH connection library")];
-#else
   [depItems addObject:ITEM(@"OpenSSH", nil, WSettingInfo,
                            [self getOpenSSHVersion], @"Secure shell client")];
-#endif
-#if !TARGET_OS_IPHONE
   [depItems
       addObject:ITEM(@"sshpass", nil, WSettingInfo, [self getSshpassVersion],
                      @"Non-interactive SSH password auth")];
-#endif
   [depItems
       addObject:ITEM(@"libwayland", nil, WSettingInfo,
                      [self getLibwaylandVersion], @"Wayland protocol library")];
@@ -899,15 +598,6 @@ static UIImage *WWNAboutLogo(void) {
       addObject:ITEM(@"libffi", nil, WSettingInfo, [self getLibffiVersion],
                      @"Foreign function interface")];
 
-#if TARGET_OS_IPHONE
-  // iOS-specific dependencies
-  [depItems addObject:ITEM(@"kosmickrisp", nil, WSettingInfo,
-                           [self getKosmickrispVersion],
-                           @"Mesa Vulkan driver for iOS")];
-  [depItems
-      addObject:ITEM(@"epoll-shim", nil, WSettingInfo,
-                     [self getEpollShimVersion], @"epoll compatibility layer")];
-#endif
 
   deps.items = depItems;
   [sects addObject:deps];
@@ -996,12 +686,6 @@ static UIImage *WWNAboutLogo(void) {
   NSString *sshPath = nil;
   NSFileManager *fm = [NSFileManager defaultManager];
 
-#if TARGET_OS_IPHONE
-  // iOS: Report libssh2 version (used instead of OpenSSH binary)
-  (void)sshPath;
-  (void)fm;
-  return [self getLibSSH2Version];
-#else
   // macOS: Use system ssh and run ssh -V
   sshPath = @"/usr/bin/ssh";
   if (![fm fileExistsAtPath:sshPath])
@@ -1046,32 +730,13 @@ static UIImage *WWNAboutLogo(void) {
   } @catch (NSException *e) {
     return @"v0.0.0";
   }
-#endif
 }
 
 - (NSString *)getLibSSH2Version {
-#if TARGET_OS_IPHONE
-  NSString *ver = [NSString stringWithUTF8String:WAWONA_LIBSSH2_VERSION];
-  if ([ver isEqualToString:@"Bundled"]) {
-    ver = [NSString stringWithUTF8String:LIBSSH2_VERSION];
-  }
-  if (ver && ![ver hasPrefix:@"v"]) {
-    ver = [@"v" stringByAppendingString:ver];
-  }
-  return [self cleanVersion:ver];
-#else
   return @"v0.0.0";
-#endif
 }
 
 - (NSString *)getWaypipeVersion {
-#if TARGET_OS_IPHONE
-  NSString *ver = [NSString stringWithUTF8String:WAWONA_WAYPIPE_VERSION];
-  if (ver && ![ver hasPrefix:@"v"]) {
-    ver = [@"v" stringByAppendingString:ver];
-  }
-  return [self cleanVersion:ver];
-#else
   NSString *waypipePath = [self findWaypipeBinary];
   if (!waypipePath) {
     NSString *ver = [NSString stringWithUTF8String:WAWONA_WAYPIPE_VERSION];
@@ -1122,10 +787,8 @@ static UIImage *WWNAboutLogo(void) {
   } @catch (NSException *e) {
     return @"v0.0.0";
   }
-#endif
 }
 
-#if !TARGET_OS_IPHONE
 - (NSString *)getSshpassVersion {
   NSString *bundlePath = [[NSBundle mainBundle] bundlePath];
   NSString *execPath = [[NSBundle mainBundle] executablePath];
@@ -1194,7 +857,6 @@ static UIImage *WWNAboutLogo(void) {
     return @"v0.0.0";
   }
 }
-#endif
 
 - (NSString *)getWWNVersion {
   // Use Nix-sourced version if available
@@ -1239,42 +901,19 @@ static UIImage *WWNAboutLogo(void) {
       cleanVersion:[NSString stringWithUTF8String:WAWONA_WAYLAND_VERSION]];
 }
 
-#if TARGET_OS_IPHONE
-- (NSString *)getKosmickrispVersion {
-  // kosmickrisp (Mesa/Vulkan) is bundled for iOS
-  return
-      [self cleanVersion:[NSString stringWithUTF8String:WAWONA_MESA_VERSION]];
-}
-
-- (NSString *)getEpollShimVersion {
-  return [self
-      cleanVersion:[NSString stringWithUTF8String:WAWONA_EPOLL_SHIM_VERSION]];
-}
-#endif
 
 - (void)openURL:(NSString *)urlString {
-#if TARGET_OS_IPHONE
-  NSURL *url = [NSURL URLWithString:urlString];
-  if (url) {
-    [[UIApplication sharedApplication] openURL:url
-                                       options:@{}
-                             completionHandler:nil];
-  }
-#else
   NSURL *url = [NSURL URLWithString:urlString];
   if (url) {
     [[NSWorkspace sharedWorkspace] openURL:url];
   }
-#endif
 }
 
 - (void)runWaypipe {
   // Save any pending text field changes first (macOS only - iOS uses alerts)
-#if !TARGET_OS_IPHONE
   // On macOS, text fields might have unsaved changes
   // Force end editing to commit any pending changes
   [self.window makeFirstResponder:nil];
-#endif
 
   // Initialize status text
   if (!self.waypipeStatusText) {
@@ -1288,68 +927,11 @@ static UIImage *WWNAboutLogo(void) {
   // Check if already running
   if (runner.isRunning) {
     [self.waypipeStatusText appendString:@"Waypipe is already running.\n"];
-#if TARGET_OS_IPHONE
-    [self presentSafeAlertWithTitle:@"Waypipe"
-                            message:@"Waypipe is already running. Stop it "
-                                    @"first, then try again."];
-#endif
     return;
   }
 
-#if TARGET_OS_IPHONE
-  {
-    __weak typeof(self) weakSelf = self;
-
-    void (^showStatusAlert)(void) = ^{
-      UIAlertController *statusAlert = [UIAlertController
-          alertControllerWithTitle:@"Waypipe"
-                           message:@"Launching waypipe...\n"
-                    preferredStyle:UIAlertControllerStyleAlert];
-      [statusAlert
-          addAction:[UIAlertAction
-                        actionWithTitle:@"Copy Log"
-                                  style:UIAlertActionStyleDefault
-                                handler:^(__unused UIAlertAction *action) {
-                                  if ([UIApplication sharedApplication]
-                                          .applicationState ==
-                                      UIApplicationStateActive) {
-                                    [UIPasteboard generalPasteboard].string =
-                                        weakSelf.waypipeStatusText ?: @"";
-                                  }
-                                }]];
-      [statusAlert
-          addAction:[UIAlertAction
-                        actionWithTitle:@"Stop"
-                                  style:UIAlertActionStyleDestructive
-                                handler:^(__unused UIAlertAction *action) {
-                                  [[WWNWaypipeRunner sharedRunner] stopWaypipe];
-                                  weakSelf.waypipeStatusAlert = nil;
-                                }]];
-      [statusAlert
-          addAction:[UIAlertAction
-                        actionWithTitle:@"Dismiss"
-                                  style:UIAlertActionStyleCancel
-                                handler:^(__unused UIAlertAction *action) {
-                                  weakSelf.waypipeStatusAlert = nil;
-                                }]];
-      weakSelf.waypipeStatusAlert = statusAlert;
-      [weakSelf presentViewController:statusAlert animated:YES completion:nil];
-    };
-
-    // Dismiss any existing presented view controller before showing status
-    if (self.presentedViewController) {
-      self.waypipeStatusAlert = nil;
-      [self.presentedViewController
-          dismissViewControllerAnimated:NO
-                             completion:showStatusAlert];
-    } else {
-      showStatusAlert();
-    }
-  }
-#else
   // macOS: Show status panel
   [self showWaypipeStatusPanel];
-#endif
 
   // Launch waypipe
   WWNLog("UI", @"Launching Waypipe...");
@@ -1362,7 +944,6 @@ static UIImage *WWNAboutLogo(void) {
   // The user can manually dismiss the settings when they are ready.
 }
 
-#if !TARGET_OS_IPHONE
 - (void)showWaypipeStatusPanel {
   // Close existing panel if any
   if (self.waypipeStatusPanel) {
@@ -1505,7 +1086,6 @@ static UIImage *WWNAboutLogo(void) {
     self.waypipeStatusPanel = nil;
   }
 }
-#endif
 
 - (void)testSSHConnection {
   WWNPreferencesManager *prefs = [WWNPreferencesManager sharedManager];
@@ -1516,282 +1096,23 @@ static UIImage *WWNAboutLogo(void) {
          user ?: @"(nil)", host ?: @"(nil)");
 
   if (!host || host.length == 0) {
-#if TARGET_OS_IPHONE
-    UIAlertController *alert = [UIAlertController
-        alertControllerWithTitle:@"No Host Specified"
-                         message:@"Please enter an SSH host address first."
-                  preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"OK"
-                                              style:UIAlertActionStyleDefault
-                                            handler:nil]];
-    [self presentViewController:alert animated:YES completion:nil];
-#else
     NSAlert *alert = [[NSAlert alloc] init];
     alert.messageText = @"No Host Specified";
     alert.informativeText = @"Please enter an SSH host address first.";
     [alert addButtonWithTitle:@"OK"];
     [alert runModal];
-#endif
     return;
   }
 
   if (!user || user.length == 0) {
-#if TARGET_OS_IPHONE
-    UIAlertController *alert = [UIAlertController
-        alertControllerWithTitle:@"No User Specified"
-                         message:@"Please enter an SSH username first."
-                  preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"OK"
-                                              style:UIAlertActionStyleDefault
-                                            handler:nil]];
-    [self presentViewController:alert animated:YES completion:nil];
-#else
     NSAlert *alert = [[NSAlert alloc] init];
     alert.messageText = @"No User Specified";
     alert.informativeText = @"Please enter an SSH username first.";
     [alert addButtonWithTitle:@"OK"];
     [alert runModal];
-#endif
     return;
   }
 
-#if TARGET_OS_IPHONE
-  // iOS: Use libssh2 to perform a real SSH connection test with authentication
-  // and remote command execution (uname -a).
-  UIAlertController *progressAlert = [UIAlertController
-      alertControllerWithTitle:@"Testing SSH Connection"
-                       message:[NSString
-                                   stringWithFormat:@"Connecting to %@@%@...",
-                                                    user, host]
-                preferredStyle:UIAlertControllerStyleAlert];
-  [self presentViewController:progressAlert animated:YES completion:nil];
-
-  NSString *password = prefs.sshPassword;
-  NSString *keyPath = prefs.sshKeyPath;
-  NSString *keyPassphrase = prefs.sshKeyPassphrase;
-  NSInteger authMethod = prefs.sshAuthMethod;
-
-  dispatch_async(
-      dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        NSString *resultTitle = nil;
-        NSString *resultMessage = nil;
-
-        // -- 1. TCP connect ------------------------------------------------
-        struct addrinfo hints, *res = NULL;
-        memset(&hints, 0, sizeof(hints));
-        hints.ai_family = AF_UNSPEC;
-        hints.ai_socktype = SOCK_STREAM;
-
-        int gai = getaddrinfo([host UTF8String], "22", &hints, &res);
-        if (gai != 0 || !res) {
-          resultTitle = @"DNS Lookup Failed";
-          resultMessage =
-              [NSString stringWithFormat:@"Could not resolve host: %@\n\n%s",
-                                         host, gai_strerror(gai)];
-          goto show_result;
-        }
-
-        int sock = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
-        if (sock < 0) {
-          resultTitle = @"Socket Error";
-          resultMessage = [NSString
-              stringWithFormat:@"Failed to create socket: %s", strerror(errno)];
-          freeaddrinfo(res);
-          goto show_result;
-        }
-
-        // Set a 10-second connect timeout via SO_SNDTIMEO
-        struct timeval tv = {.tv_sec = 10, .tv_usec = 0};
-        setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-        setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-
-        if (connect(sock, res->ai_addr, res->ai_addrlen) != 0) {
-          resultTitle = @"Connection Failed";
-          resultMessage =
-              [NSString stringWithFormat:
-                            @"Could not connect to %@:22\n\n%s\n\nCheck that:\n"
-                            @"- The host address is correct\n"
-                            @"- SSH server is running on port 22\n"
-                            @"- You are on the same network",
-                            host, strerror(errno)];
-          close(sock);
-          freeaddrinfo(res);
-          goto show_result;
-        }
-        freeaddrinfo(res);
-
-        // -- 2. libssh2 handshake -----------------------------------------
-        {
-          int rc;
-          libssh2_init(0);
-          LIBSSH2_SESSION *session = libssh2_session_init();
-          if (!session) {
-            resultTitle = @"SSH Error";
-            resultMessage = @"Failed to initialize libssh2 session.";
-            close(sock);
-            goto show_result;
-          }
-
-          // Set blocking mode with a reasonable timeout
-          libssh2_session_set_timeout(session, 10000); // 10s
-
-          rc = libssh2_session_handshake(session, sock);
-          if (rc != 0) {
-            char *errmsg = NULL;
-            libssh2_session_last_error(session, &errmsg, NULL, 0);
-            resultTitle = @"SSH Handshake Failed";
-            resultMessage = [NSString
-                stringWithFormat:@"SSH handshake with %@ failed (rc=%d).\n\n%s",
-                                 host, rc, errmsg ?: "Unknown error"];
-            libssh2_session_disconnect(session, "test done");
-            libssh2_session_free(session);
-            close(sock);
-            goto show_result;
-          }
-
-          // Update progress on main thread
-          dispatch_async(dispatch_get_main_queue(), ^{
-            progressAlert.message = [NSString
-                stringWithFormat:@"Authenticating %@@%@...", user, host];
-          });
-
-          // -- 3. Authenticate --------------------------------------------
-          if (authMethod == 1 && keyPath.length > 0) {
-            // Public key authentication
-            NSString *expandedKey = [keyPath stringByExpandingTildeInPath];
-            // Try with .pub file if it exists
-            NSString *pubKeyPath =
-                [expandedKey stringByAppendingString:@".pub"];
-            if (![[NSFileManager defaultManager] fileExistsAtPath:pubKeyPath]) {
-              pubKeyPath = nil;
-            }
-            rc = libssh2_userauth_publickey_fromfile(
-                session, [user UTF8String],
-                pubKeyPath ? [pubKeyPath UTF8String] : NULL,
-                [expandedKey UTF8String],
-                keyPassphrase.length > 0 ? [keyPassphrase UTF8String] : NULL);
-          } else {
-            // Password authentication
-            rc = libssh2_userauth_password(
-                session, [user UTF8String],
-                password.length > 0 ? [password UTF8String] : "");
-          }
-
-          if (rc != 0) {
-            char *errmsg = NULL;
-            libssh2_session_last_error(session, &errmsg, NULL, 0);
-            resultTitle = @"Authentication Failed";
-            resultMessage = [NSString
-                stringWithFormat:@"Failed to authenticate %@@%@ (%s).\n\n%s"
-                                 @"\n\nCheck that:\n"
-                                 @"- Username and %@ are correct\n"
-                                 @"- The server accepts %@ authentication",
-                                 user, host,
-                                 authMethod == 1 ? "public key" : "password",
-                                 errmsg ?: "Unknown error",
-                                 authMethod == 1 ? @"key" : @"password",
-                                 authMethod == 1 ? @"public key" : @"password"];
-            libssh2_session_disconnect(session, "test done");
-            libssh2_session_free(session);
-            close(sock);
-            goto show_result;
-          }
-
-          // Update progress on main thread
-          dispatch_async(dispatch_get_main_queue(), ^{
-            progressAlert.message =
-                [NSString stringWithFormat:@"Running uname -a on %@...", host];
-          });
-
-          // -- 4. Execute uname -a ----------------------------------------
-          LIBSSH2_CHANNEL *channel = libssh2_channel_open_session(session);
-          if (!channel) {
-            char *errmsg = NULL;
-            libssh2_session_last_error(session, &errmsg, NULL, 0);
-            resultTitle = @"Channel Error";
-            resultMessage =
-                [NSString stringWithFormat:@"Authenticated successfully but "
-                                           @"failed to open channel.\n\n%s",
-                                           errmsg ?: "Unknown error"];
-            libssh2_session_disconnect(session, "test done");
-            libssh2_session_free(session);
-            close(sock);
-            goto show_result;
-          }
-
-          rc = libssh2_channel_exec(channel, "uname -a");
-          if (rc != 0) {
-            resultTitle = @"Exec Error";
-            resultMessage = @"Failed to execute remote command.";
-            libssh2_channel_free(channel);
-            libssh2_session_disconnect(session, "test done");
-            libssh2_session_free(session);
-            close(sock);
-            goto show_result;
-          }
-
-          // Read output
-          char buf[4096];
-          NSMutableString *output = [NSMutableString string];
-          while (1) {
-            ssize_t n = libssh2_channel_read(channel, buf, sizeof(buf) - 1);
-            if (n > 0) {
-              buf[n] = '\0';
-              [output appendFormat:@"%s", buf];
-            } else {
-              break;
-            }
-          }
-
-          libssh2_channel_send_eof(channel);
-          libssh2_channel_wait_eof(channel);
-          libssh2_channel_wait_closed(channel);
-          int exitCode = libssh2_channel_get_exit_status(channel);
-
-          libssh2_channel_free(channel);
-          libssh2_session_disconnect(session, "test done");
-          libssh2_session_free(session);
-          close(sock);
-
-          // -- 5. Build result --------------------------------------------
-          NSString *trimmedOutput =
-              [output stringByTrimmingCharactersInSet:
-                          [NSCharacterSet whitespaceAndNewlineCharacterSet]];
-
-          if (exitCode == 0 && trimmedOutput.length > 0) {
-            resultTitle = @"SSH Connection Successful";
-            resultMessage = [NSString
-                stringWithFormat:@"Connected to %@@%@\n\nRemote system:\n%@",
-                                 user, host, trimmedOutput];
-          } else if (exitCode == 0) {
-            resultTitle = @"SSH Connection Successful";
-            resultMessage = [NSString
-                stringWithFormat:
-                    @"Successfully connected and authenticated to %@@%@", user,
-                    host];
-          } else {
-            resultTitle = @"Remote Command Failed";
-            resultMessage = [NSString
-                stringWithFormat:
-                    @"Authenticated to %@@%@ but command exited with code %d."
-                    @"\n\nOutput:\n%@",
-                    user, host, exitCode,
-                    trimmedOutput.length > 0 ? trimmedOutput : @"(none)"];
-          }
-        }
-
-      show_result:
-        dispatch_async(dispatch_get_main_queue(), ^{
-          [progressAlert
-              dismissViewControllerAnimated:YES
-                                 completion:^{
-                                   [self
-                                       presentSafeAlertWithTitle:resultTitle
-                                                         message:resultMessage];
-                                 }];
-        });
-      });
-#else
   // macOS implementation using sshpass (if available) or expect-like pty
   // approach Run the SSH test asynchronously to avoid blocking UI
   dispatch_async(
@@ -2152,7 +1473,6 @@ static UIImage *WWNAboutLogo(void) {
           }
         });
       });
-#endif
 }
 
 - (void)pingSSHHost {
@@ -2163,35 +1483,14 @@ static UIImage *WWNAboutLogo(void) {
   WWNLog("SSH", @"Attempting to ping SSH host: '%@'", host ?: @"(nil)");
 
   if (!host || host.length == 0) {
-#if TARGET_OS_IPHONE
-    UIAlertController *alert = [UIAlertController
-        alertControllerWithTitle:@"No Host Specified"
-                         message:@"Please enter an SSH host address first."
-                  preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"OK"
-                                              style:UIAlertActionStyleDefault
-                                            handler:nil]];
-    [self presentViewController:alert animated:YES completion:nil];
-#else
     NSAlert *alert = [[NSAlert alloc] init];
     alert.messageText = @"No Host Specified";
     alert.informativeText = @"Please enter an SSH host address first.";
     [alert addButtonWithTitle:@"OK"];
     [alert runModal];
-#endif
     return;
   }
 
-#if TARGET_OS_IPHONE
-  UIAlertController *progressAlert = [UIAlertController
-      alertControllerWithTitle:@"Pinging SSH Host"
-                       message:[NSString
-                                   stringWithFormat:
-                                       @"Testing network connectivity to %@...",
-                                       host]
-                preferredStyle:UIAlertControllerStyleAlert];
-  [self presentViewController:progressAlert animated:YES completion:nil];
-#endif
 
   // Use Network framework for ping asynchronously
   nw_endpoint_t endpoint = nw_endpoint_create_host([host UTF8String], "22");
@@ -2202,41 +1501,12 @@ static UIImage *WWNAboutLogo(void) {
   if (!connection) {
     NSString *errorMessage = @"Failed to create Network.framework connection";
     dispatch_async(dispatch_get_main_queue(), ^{
-#if TARGET_OS_IPHONE
-      [progressAlert
-          dismissViewControllerAnimated:YES
-                             completion:^{
-                               UIAlertController *resultAlert = [UIAlertController
-                                   alertControllerWithTitle:@"Ping Failed"
-                                                    message:
-                                                        [NSString
-                                                            stringWithFormat:
-                                                                @"Failed to "
-                                                                @"reach "
-                                                                @"%@\n%@",
-                                                                host,
-                                                                errorMessage]
-                                             preferredStyle:
-                                                 UIAlertControllerStyleAlert];
-                               [resultAlert
-                                   addAction:
-                                       [UIAlertAction
-                                           actionWithTitle:@"OK"
-                                                     style:
-                                                         UIAlertActionStyleDefault
-                                                   handler:nil]];
-                               [self presentViewController:resultAlert
-                                                  animated:YES
-                                                completion:nil];
-                             }];
-#else
       NSAlert *resultAlert = [[NSAlert alloc] init];
       resultAlert.messageText = @"Ping Failed";
       resultAlert.informativeText = [NSString
           stringWithFormat:@"Failed to reach %@\n%@", host, errorMessage];
       [resultAlert addButtonWithTitle:@"OK"];
       [resultAlert runModal];
-#endif
     });
     return;
   }
@@ -2261,36 +1531,6 @@ static UIImage *WWNAboutLogo(void) {
       nw_connection_cancel(connection);
 
       dispatch_async(dispatch_get_main_queue(), ^{
-#if TARGET_OS_IPHONE
-        [progressAlert
-            dismissViewControllerAnimated:YES
-                               completion:^{
-                                 UIAlertController *resultAlert = [UIAlertController
-                                     alertControllerWithTitle:@"Ping Successful"
-                                                      message:
-                                                          [NSString
-                                                              stringWithFormat:
-                                                                  @"Successful"
-                                                                  @"ly "
-                                                                  @"reached "
-                                                                  @"%@\nLatenc"
-                                                                  @"y: %.0f "
-                                                                  @"ms",
-                                                                  host, latency]
-                                               preferredStyle:
-                                                   UIAlertControllerStyleAlert];
-                                 [resultAlert
-                                     addAction:
-                                         [UIAlertAction
-                                             actionWithTitle:@"OK"
-                                                       style:
-                                                           UIAlertActionStyleDefault
-                                                     handler:nil]];
-                                 [self presentViewController:resultAlert
-                                                    animated:YES
-                                                  completion:nil];
-                               }];
-#else
             NSAlert *resultAlert = [[NSAlert alloc] init];
             resultAlert.messageText = @"Ping Successful";
             resultAlert.informativeText = [NSString
@@ -2298,7 +1538,6 @@ static UIImage *WWNAboutLogo(void) {
                                  host, latency];
             [resultAlert addButtonWithTitle:@"OK"];
             [resultAlert runModal];
-#endif
       });
     } else if (state == nw_connection_state_failed ||
                state == nw_connection_state_cancelled) {
@@ -2313,41 +1552,12 @@ static UIImage *WWNAboutLogo(void) {
       }
 
       dispatch_async(dispatch_get_main_queue(), ^{
-#if TARGET_OS_IPHONE
-        [progressAlert
-            dismissViewControllerAnimated:YES
-                               completion:^{
-                                 UIAlertController *resultAlert = [UIAlertController
-                                     alertControllerWithTitle:@"Ping Failed"
-                                                      message:
-                                                          [NSString
-                                                              stringWithFormat:
-                                                                  @"Failed to "
-                                                                  @"reach "
-                                                                  @"%@\n%@",
-                                                                  host,
-                                                                  errorMessage]
-                                               preferredStyle:
-                                                   UIAlertControllerStyleAlert];
-                                 [resultAlert
-                                     addAction:
-                                         [UIAlertAction
-                                             actionWithTitle:@"OK"
-                                                       style:
-                                                           UIAlertActionStyleDefault
-                                                     handler:nil]];
-                                 [self presentViewController:resultAlert
-                                                    animated:YES
-                                                  completion:nil];
-                               }];
-#else
             NSAlert *resultAlert = [[NSAlert alloc] init];
             resultAlert.messageText = @"Ping Failed";
             resultAlert.informativeText = [NSString
                 stringWithFormat:@"Failed to reach %@\n%@", host, errorMessage];
             [resultAlert addButtonWithTitle:@"OK"];
             [resultAlert runModal];
-#endif
       });
     }
   });
@@ -2362,39 +1572,6 @@ static UIImage *WWNAboutLogo(void) {
           completed = YES;
           nw_connection_cancel(connection);
           dispatch_async(dispatch_get_main_queue(), ^{
-#if TARGET_OS_IPHONE
-            [progressAlert
-                dismissViewControllerAnimated:YES
-                                   completion:^{
-                                     UIAlertController *resultAlert = [UIAlertController
-                                         alertControllerWithTitle:@"Ping Failed"
-                                                          message:
-                                                              [NSString
-                                                                  stringWithFormat:
-                                                                      @"Connect"
-                                                                      @"io"
-                                                                      @"n "
-                                                                      @"waiting"
-                                                                      @" "
-                                                                      @"timeout"
-                                                                      @" "
-                                                                      @"to "
-                                                                      @"%@",
-                                                                      host]
-                                                   preferredStyle:
-                                                       UIAlertControllerStyleAlert];
-                                     [resultAlert
-                                         addAction:
-                                             [UIAlertAction
-                                                 actionWithTitle:@"OK"
-                                                           style:
-                                                               UIAlertActionStyleDefault
-                                                         handler:nil]];
-                                     [self presentViewController:resultAlert
-                                                        animated:YES
-                                                      completion:nil];
-                                   }];
-#else
                        NSAlert *resultAlert = [[NSAlert alloc] init];
                        resultAlert.messageText = @"Ping Failed";
                        resultAlert.informativeText = [NSString
@@ -2402,7 +1579,6 @@ static UIImage *WWNAboutLogo(void) {
                                             host];
                        [resultAlert addButtonWithTitle:@"OK"];
                        [resultAlert runModal];
-#endif
           });
         }
       });
@@ -2416,34 +1592,14 @@ static UIImage *WWNAboutLogo(void) {
   WWNLog("SSH", @"Attempting to ping host: '%@'", host ?: @"(nil)");
 
   if (!host || host.length == 0) {
-#if TARGET_OS_IPHONE
-    UIAlertController *alert = [UIAlertController
-        alertControllerWithTitle:@"No Host Specified"
-                         message:@"Please enter an SSH host address first."
-                  preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"OK"
-                                              style:UIAlertActionStyleDefault
-                                            handler:nil]];
-    [self presentViewController:alert animated:YES completion:nil];
-#else
     NSAlert *alert = [[NSAlert alloc] init];
     alert.messageText = @"No Host Specified";
     alert.informativeText = @"Please enter an SSH host address first.";
     [alert addButtonWithTitle:@"OK"];
     [alert runModal];
-#endif
     return;
   }
 
-#if TARGET_OS_IPHONE
-  UIAlertController *progressAlert = [UIAlertController
-      alertControllerWithTitle:@"Pinging Host"
-                       message:[NSString
-                                   stringWithFormat:
-                                       @"Testing connectivity to %@...", host]
-                preferredStyle:UIAlertControllerStyleAlert];
-  [self presentViewController:progressAlert animated:YES completion:nil];
-#endif
 
   // Perform ping on background thread using Network.framework
   nw_endpoint_t endpoint = nw_endpoint_create_host([host UTF8String], "22");
@@ -2458,41 +1614,12 @@ static UIImage *WWNAboutLogo(void) {
   if (!connection) {
     NSString *errorMessage = @"Failed to create Network.framework connection";
     dispatch_async(dispatch_get_main_queue(), ^{
-#if TARGET_OS_IPHONE
-      [progressAlert
-          dismissViewControllerAnimated:YES
-                             completion:^{
-                               UIAlertController *resultAlert = [UIAlertController
-                                   alertControllerWithTitle:@"Ping Failed"
-                                                    message:
-                                                        [NSString
-                                                            stringWithFormat:
-                                                                @"Failed to "
-                                                                @"reach "
-                                                                @"%@\n%@",
-                                                                host,
-                                                                errorMessage]
-                                             preferredStyle:
-                                                 UIAlertControllerStyleAlert];
-                               [resultAlert
-                                   addAction:
-                                       [UIAlertAction
-                                           actionWithTitle:@"OK"
-                                                     style:
-                                                         UIAlertActionStyleDefault
-                                                   handler:nil]];
-                               [self presentViewController:resultAlert
-                                                  animated:YES
-                                                completion:nil];
-                             }];
-#else
       NSAlert *resultAlert = [[NSAlert alloc] init];
       resultAlert.messageText = @"Ping Failed";
       resultAlert.informativeText = [NSString
           stringWithFormat:@"Failed to reach %@\n%@", host, errorMessage];
       [resultAlert addButtonWithTitle:@"OK"];
       [resultAlert runModal];
-#endif
     });
     return;
   }
@@ -2517,38 +1644,6 @@ static UIImage *WWNAboutLogo(void) {
       nw_connection_cancel(connection);
 
       dispatch_async(dispatch_get_main_queue(), ^{
-#if TARGET_OS_IPHONE
-        [progressAlert
-            dismissViewControllerAnimated:YES
-                               completion:^{
-                                 UIAlertController *resultAlert = [UIAlertController
-                                     alertControllerWithTitle:@"Ping Successful"
-                                                      message:
-                                                          [NSString
-                                                              stringWithFormat:
-                                                                  @"Host "
-                                                                  @"%@ is "
-                                                                  @"reachab"
-                                                                  @"le."
-                                                                  @"\nLaten"
-                                                                  @"cy: "
-                                                                  @"%.0f "
-                                                                  @"ms",
-                                                                  host, latency]
-                                               preferredStyle:
-                                                   UIAlertControllerStyleAlert];
-                                 [resultAlert
-                                     addAction:
-                                         [UIAlertAction
-                                             actionWithTitle:@"OK"
-                                                       style:
-                                                           UIAlertActionStyleDefault
-                                                     handler:nil]];
-                                 [self presentViewController:resultAlert
-                                                    animated:YES
-                                                  completion:nil];
-                               }];
-#else
             NSAlert *resultAlert = [[NSAlert alloc] init];
             resultAlert.messageText = @"Ping Successful";
             resultAlert.informativeText = [NSString
@@ -2556,7 +1651,6 @@ static UIImage *WWNAboutLogo(void) {
                                  host, latency];
             [resultAlert addButtonWithTitle:@"OK"];
             [resultAlert runModal];
-#endif
       });
     } else if (state == nw_connection_state_failed ||
                state == nw_connection_state_cancelled) {
@@ -2571,36 +1665,6 @@ static UIImage *WWNAboutLogo(void) {
       }
 
       dispatch_async(dispatch_get_main_queue(), ^{
-#if TARGET_OS_IPHONE
-        [progressAlert
-            dismissViewControllerAnimated:YES
-                               completion:^{
-                                 UIAlertController *resultAlert = [UIAlertController
-                                     alertControllerWithTitle:@"Ping Failed"
-                                                      message:
-                                                          [NSString
-                                                              stringWithFormat:
-                                                                  @"Could "
-                                                                  @"not "
-                                                                  @"reach "
-                                                                  @"%@.\n%"
-                                                                  @"@",
-                                                                  host,
-                                                                  errorMessage]
-                                               preferredStyle:
-                                                   UIAlertControllerStyleAlert];
-                                 [resultAlert
-                                     addAction:
-                                         [UIAlertAction
-                                             actionWithTitle:@"OK"
-                                                       style:
-                                                           UIAlertActionStyleDefault
-                                                     handler:nil]];
-                                 [self presentViewController:resultAlert
-                                                    animated:YES
-                                                  completion:nil];
-                               }];
-#else
             NSAlert *resultAlert = [[NSAlert alloc] init];
             resultAlert.messageText = @"Ping Failed";
             resultAlert.informativeText =
@@ -2608,7 +1672,6 @@ static UIImage *WWNAboutLogo(void) {
                                            errorMessage];
             [resultAlert addButtonWithTitle:@"OK"];
             [resultAlert runModal];
-#endif
       });
     }
   });
@@ -2623,43 +1686,6 @@ static UIImage *WWNAboutLogo(void) {
           completed = YES;
           nw_connection_cancel(connection);
           dispatch_async(dispatch_get_main_queue(), ^{
-#if TARGET_OS_IPHONE
-            [progressAlert
-                dismissViewControllerAnimated:YES
-                                   completion:^{
-                                     UIAlertController *resultAlert = [UIAlertController
-                                         alertControllerWithTitle:@"Ping Failed"
-                                                          message:
-                                                              [NSString
-                                                                  stringWithFormat:
-                                                                      @"Connect"
-                                                                      @"io"
-                                                                      @"n "
-                                                                      @"waiting"
-                                                                      @" "
-                                                                      @"timeout"
-                                                                      @" "
-                                                                      @"after "
-                                                                      @"10 "
-                                                                      @"seconds"
-                                                                      @" "
-                                                                      @"to "
-                                                                      @"%@",
-                                                                      host]
-                                                   preferredStyle:
-                                                       UIAlertControllerStyleAlert];
-                                     [resultAlert
-                                         addAction:
-                                             [UIAlertAction
-                                                 actionWithTitle:@"OK"
-                                                           style:
-                                                               UIAlertActionStyleDefault
-                                                         handler:nil]];
-                                     [self presentViewController:resultAlert
-                                                        animated:YES
-                                                      completion:nil];
-                                   }];
-#else
                        NSAlert *resultAlert = [[NSAlert alloc] init];
                        resultAlert.messageText = @"Ping Failed";
                        resultAlert.informativeText = [NSString
@@ -2668,7 +1694,6 @@ static UIImage *WWNAboutLogo(void) {
                                host];
                        [resultAlert addButtonWithTitle:@"OK"];
                        [resultAlert runModal];
-#endif
           });
         }
       });
@@ -2679,97 +1704,6 @@ static UIImage *WWNAboutLogo(void) {
 - (void)runnerDidReceiveSSHPasswordPrompt:(NSString *)prompt {
   dispatch_async(dispatch_get_main_queue(), ^{
     WWNLog("SSH", @"SSH password prompt: %@", prompt);
-#if TARGET_OS_IPHONE
-    if (self.waypipeStatusAlert) {
-      // Dismiss existing status alert if any
-      [self.waypipeStatusAlert dismissViewControllerAnimated:NO completion:nil];
-      self.waypipeStatusAlert = nil;
-    }
-
-    UIAlertController *alert = [UIAlertController
-        alertControllerWithTitle:@"SSH Password Required"
-                         message:prompt ? prompt : @"Enter your SSH password:"
-                  preferredStyle:UIAlertControllerStyleAlert];
-
-    __block UITextField *passwordField = nil;
-    [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
-      passwordField = textField;
-      textField.placeholder = @"Enter a Password...";
-      textField.secureTextEntry = YES;
-
-      // Add show/hide toggle button
-      UIButton *toggleButton = [UIButton buttonWithType:UIButtonTypeCustom];
-      [toggleButton setImage:[UIImage systemImageNamed:@"eye"]
-                    forState:UIControlStateNormal];
-      [toggleButton setImage:[UIImage systemImageNamed:@"eye.slash"]
-                    forState:UIControlStateSelected];
-      toggleButton.frame = CGRectMake(0, 0, 30, 30);
-      toggleButton.contentMode = UIViewContentModeCenter;
-      [toggleButton addTarget:self
-                       action:@selector(togglePasswordVisibility:)
-             forControlEvents:UIControlEventTouchUpInside];
-
-      // Store reference to text field in button for toggling
-      objc_setAssociatedObject(toggleButton, "passwordField", textField,
-                               OBJC_ASSOCIATION_ASSIGN);
-
-      textField.rightView = toggleButton;
-      textField.rightViewMode = UITextFieldViewModeAlways;
-    }];
-
-    UIAlertAction *cancel =
-        [UIAlertAction actionWithTitle:@"Cancel"
-                                 style:UIAlertActionStyleCancel
-                               handler:nil];
-    UIAlertAction *submit = [UIAlertAction
-        actionWithTitle:@"Save & Connect"
-                  style:UIAlertActionStyleDefault
-                handler:^(UIAlertAction *action) {
-                  NSString *password = passwordField.text;
-                  if (password && password.length > 0) {
-                    // Save password
-                    WWNPreferencesManager *prefs =
-                        [WWNPreferencesManager sharedManager];
-                    prefs.waypipeSSHPassword = password;
-
-                    // Retry waypipe connection
-                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
-                                                 (int64_t)(0.1 * NSEC_PER_SEC)),
-                                   dispatch_get_main_queue(), ^{
-                                     [self runWaypipe];
-                                   });
-                  } else {
-                    UIAlertController *errorAlert = [UIAlertController
-                        alertControllerWithTitle:@"Password Required"
-                                         message:@"Please enter a password."
-                                  preferredStyle:UIAlertControllerStyleAlert];
-                    [errorAlert
-                        addAction:[UIAlertAction
-                                      actionWithTitle:@"OK"
-                                                style:UIAlertActionStyleDefault
-                                              handler:nil]];
-                    [self presentViewController:errorAlert
-                                       animated:YES
-                                     completion:nil];
-                  }
-                }];
-    [alert addAction:cancel];
-    [alert addAction:submit];
-
-    // Safe presentation
-    UIViewController *presenter = self;
-    if (presenter.presentedViewController) {
-      [presenter.presentedViewController
-          dismissViewControllerAnimated:NO
-                             completion:^{
-                               [presenter presentViewController:alert
-                                                       animated:YES
-                                                     completion:nil];
-                             }];
-    } else {
-      [presenter presentViewController:alert animated:YES completion:nil];
-    }
-#else
   // macOS: Use NSAlert with secure text field and eyeball toggle
   NSAlert *alert = [[NSAlert alloc] init];
   alert.messageText = @"SSH Password Required";
@@ -2841,11 +1775,9 @@ static UIImage *WWNAboutLogo(void) {
                          });
       }
   }
-#endif
   });
 }
 
-#if !TARGET_OS_IPHONE
 // Action for toggling password visibility in macOS dialog
 - (void)toggleMacOSPasswordVisibility:(NSButton *)sender {
   NSSecureTextField *secureField =
@@ -2870,7 +1802,6 @@ static UIImage *WWNAboutLogo(void) {
     objc_setAssociatedObject(sender, "isSecure", @YES, OBJC_ASSOCIATION_RETAIN);
   }
 }
-#endif
 
 - (void)runnerDidReceiveSSHError:(NSString *)error {
   // Log error to status text
@@ -2878,49 +1809,6 @@ static UIImage *WWNAboutLogo(void) {
       [NSString stringWithFormat:@"\n[SSH ERROR] %@\n", error];
   [self.waypipeStatusText appendString:errorLine];
 
-#if TARGET_OS_IPHONE
-  dispatch_async(dispatch_get_main_queue(), ^{
-    if (self.waypipeStatusAlert) {
-      [self.waypipeStatusAlert dismissViewControllerAnimated:YES
-                                                  completion:nil];
-      self.waypipeStatusAlert = nil;
-    }
-
-    UIAlertController *alert = [UIAlertController
-        alertControllerWithTitle:@"SSH/Waypipe Error"
-                         message:error
-                  preferredStyle:UIAlertControllerStyleAlert];
-
-    [alert addAction:[UIAlertAction
-                         actionWithTitle:@"Copy Error"
-                                   style:UIAlertActionStyleDefault
-                                 handler:^(UIAlertAction *_Nonnull action) {
-                                   if ([UIApplication sharedApplication]
-                                           .applicationState ==
-                                       UIApplicationStateActive) {
-                                     [UIPasteboard generalPasteboard].string =
-                                         error;
-                                   }
-                                 }]];
-
-    [alert addAction:[UIAlertAction actionWithTitle:@"OK"
-                                              style:UIAlertActionStyleCancel
-                                            handler:nil]];
-
-    UIViewController *presenter = self;
-    if (presenter.presentedViewController) {
-      [presenter.presentedViewController
-          dismissViewControllerAnimated:NO
-                             completion:^{
-                               [presenter presentViewController:alert
-                                                       animated:YES
-                                                     completion:nil];
-                             }];
-    } else {
-      [presenter presentViewController:alert animated:YES completion:nil];
-    }
-  });
-#else
   dispatch_async(dispatch_get_main_queue(), ^{
     // Update status panel with error
     if (self.waypipeStatusPanel) {
@@ -2943,7 +1831,6 @@ static UIImage *WWNAboutLogo(void) {
                                           forType:NSPasteboardTypeString];
     }
   });
-#endif
 }
 
 - (void)runnerDidFinishWithExitCode:(int)exitCode {
@@ -2951,13 +1838,6 @@ static UIImage *WWNAboutLogo(void) {
       [NSString stringWithFormat:@"\n[Exited with code %d]\n", exitCode];
   [self.waypipeStatusText appendString:line];
 
-#if TARGET_OS_IPHONE
-  if (self.waypipeStatusAlert) {
-    NSString *title = exitCode == 0 ? @"Waypipe Exited" : @"Waypipe Error";
-    self.waypipeStatusAlert.title = title;
-    self.waypipeStatusAlert.message = self.waypipeStatusText;
-  }
-#else
   dispatch_async(dispatch_get_main_queue(), ^{
     if (self.waypipeStatusPanel) {
       NSString *title =
@@ -2966,7 +1846,6 @@ static UIImage *WWNAboutLogo(void) {
     }
     [self updateWaypipeStatusPanel];
   });
-#endif
 }
 
 - (void)runnerDidReceiveOutput:(NSString *)output isError:(BOOL)isError {
@@ -2991,20 +1870,6 @@ static UIImage *WWNAboutLogo(void) {
                                                      maxLen)];
     }
 
-#if TARGET_OS_IPHONE
-    // Update the iOS status alert message in real-time
-    if (self.waypipeStatusAlert) {
-      // Show last ~500 chars to keep the alert readable
-      NSString *displayText = self.waypipeStatusText;
-      if (displayText.length > 500) {
-        displayText = [@"...\n"
-            stringByAppendingString:[displayText
-                                        substringFromIndex:displayText.length -
-                                                           500]];
-      }
-      self.waypipeStatusAlert.message = displayText;
-    }
-#else
     // Update text view if visible
     if (self.waypipeStatusTextView) {
       [self.waypipeStatusTextView.textStorage.mutableString
@@ -3012,7 +1877,6 @@ static UIImage *WWNAboutLogo(void) {
       [self.waypipeStatusTextView
           scrollRangeToVisible:NSMakeRange(self.waypipeStatusText.length, 0)];
     }
-#endif
 
     // Re-use existing checks for connection success
     [self checkWaypipeSuccessIndicators:output];
@@ -3030,15 +1894,9 @@ static UIImage *WWNAboutLogo(void) {
         [s containsString:@"SSH tunnel established"] ||
         [s containsString:@"pump threads started"]) {
       self.waypipeMarkedConnected = YES;
-#if TARGET_OS_IPHONE
-      if (self.waypipeStatusAlert) {
-        self.waypipeStatusAlert.title = @"Waypipe - Connected";
-      }
-#else
       if (self.waypipeStatusPanel) {
         self.waypipeStatusPanel.title = @"Waypipe - Connected";
       }
-#endif
     }
   }
 }
@@ -3055,727 +1913,6 @@ static UIImage *WWNAboutLogo(void) {
   [self runnerDidReceiveOutput:s isError:NO];
 }
 
-#if TARGET_OS_IPHONE
-
-- (void)showPreferences:(id)sender {
-  [self loadViewIfNeeded];
-}
-
-- (void)selectSectionWithTitle:(NSString *)title {
-  if (title.length == 0) {
-    return;
-  }
-  for (WWNPreferencesSection *section in self.sections) {
-    if ([section.title caseInsensitiveCompare:title] == NSOrderedSame) {
-      self.activeSection = section;
-      self.title = section.title;
-      if (self.isViewLoaded) {
-        [self.tableView reloadData];
-      }
-      break;
-    }
-  }
-}
-
-- (void)openMachinesConfiguration:(id)sender {
-  (void)sender;
-  UIViewController *presenter = self;
-  if (presenter.presentedViewController != nil) {
-    presenter = presenter.presentedViewController;
-  }
-  [[WWNMachinesCoordinator sharedCoordinator]
-      presentMachinesFromViewController:presenter
-                              onConnect:nil];
-}
-
-- (void)dismissSelf {
-  [self dismissViewControllerAnimated:YES completion:nil];
-}
-
-- (NSInteger)numberOfSectionsInTableView:(UITableView *)tv {
-  if (self.activeSection) {
-    return 1;
-  }
-  return self.sections.count;
-}
-
-- (NSInteger)tableView:(UITableView *)tv numberOfRowsInSection:(NSInteger)sec {
-  if (self.activeSection) {
-    return self.activeSection.items.count;
-  }
-  return self.sections[sec].items.count;
-}
-
-- (NSString *)tableView:(UITableView *)tv
-    titleForHeaderInSection:(NSInteger)sec {
-  if (self.activeSection) {
-    return self.activeSection.title;
-  }
-  return self.sections[sec].title;
-}
-
-- (UITableViewCell *)tableView:(UITableView *)tv
-         cellForRowAtIndexPath:(NSIndexPath *)ip {
-  WWNSettingItem *item;
-  if (self.activeSection) {
-    item = self.activeSection.items[ip.row];
-  } else {
-    item = self.sections[ip.section].items[ip.row];
-  }
-
-  BOOL usesSubtitleInfoCell =
-      (item.type == WSettingInfo && item.key == nil && item.desc.length > 0);
-  NSString *cellIdentifier =
-      usesSubtitleInfoCell ? @"InfoSubtitleCell" : @"Cell";
-  UITableViewCell *cell = [tv dequeueReusableCellWithIdentifier:cellIdentifier];
-  if (!cell) {
-    UITableViewCellStyle style = usesSubtitleInfoCell
-                                     ? UITableViewCellStyleSubtitle
-                                     : UITableViewCellStyleValue1;
-    cell = [[UITableViewCell alloc] initWithStyle:style
-                                  reuseIdentifier:cellIdentifier];
-  }
-
-  // Reset image to avoid phantom reuse
-  cell.imageView.image = nil;
-  cell.imageView.layer.cornerRadius = 0;
-  cell.imageView.clipsToBounds = NO;
-
-  cell.textLabel.text = item.title;
-  if (item.type != WSettingHeader) {
-    cell.textLabel.font = [UIFont systemFontOfSize:17];
-  }
-  cell.textLabel.textColor =
-      [UIColor labelColor]; // Reset to default color (not blue)
-  cell.detailTextLabel.text = nil;
-  cell.detailTextLabel.numberOfLines = 1;
-  cell.detailTextLabel.textColor = [UIColor secondaryLabelColor];
-  cell.accessoryView = nil;
-  cell.selectionStyle = UITableViewCellSelectionStyleNone;
-
-  if (item.type == WSettingSwitch) {
-    UISwitch *sw = [[UISwitch alloc] initWithFrame:CGRectZero];
-#if TARGET_OS_IPHONE
-    // iOS: One-shot is always on (libssh2 in-process); show as on and disabled.
-    // Row remains tappable so we can show "iOS does not allow this feature."
-    if ([item.key isEqualToString:@"WaypipeOneshot"]) {
-      sw.on = YES;
-      sw.enabled = NO;
-      cell.textLabel.textColor = [UIColor secondaryLabelColor];
-      cell.selectionStyle = UITableViewCellSelectionStyleDefault;
-      // iOS: Force SSD is always on; CSD is not supported on iOS.
-    } else if ([item.key isEqualToString:@"ForceServerSideDecorations"]) {
-      sw.on = YES;
-      sw.enabled = NO;
-      cell.textLabel.textColor = [UIColor secondaryLabelColor];
-      cell.selectionStyle = UITableViewCellSelectionStyleDefault;
-    } else {
-      sw.on = [[NSUserDefaults standardUserDefaults] boolForKey:item.key];
-    }
-#else
-    sw.on = [[NSUserDefaults standardUserDefaults] boolForKey:item.key];
-#endif
-    sw.tag = (ip.section * 1000) + ip.row;
-    [sw addTarget:self
-                  action:@selector(swChg:)
-        forControlEvents:UIControlEventValueChanged];
-
-    // No info buttons for switches - removed per user request
-    cell.accessoryView = sw;
-  } else if (item.type == WSettingText || item.type == WSettingNumber) {
-    id val = [[NSUserDefaults standardUserDefaults] objectForKey:item.key];
-    if (!val) {
-      val = item.defaultValue;
-    }
-
-    // Special handling for Display Number: show computed wayland-X value
-    if ([item.key isEqualToString:@"WaylandDisplayNumber"]) {
-      NSInteger displayNum =
-          [val isKindOfClass:[NSNumber class]] ? [val integerValue] : 0;
-      cell.detailTextLabel.text =
-          [NSString stringWithFormat:@"%ld (wayland-%ld)", (long)displayNum,
-                                     (long)displayNum];
-    } else {
-      cell.detailTextLabel.text = [val description];
-    }
-    cell.accessoryType = UITableViewCellAccessoryNone;
-    cell.selectionStyle = UITableViewCellSelectionStyleDefault;
-  } else if (item.type == WSettingPassword) {
-    // For password fields, show dots if password exists, otherwise show
-    // placeholder
-    WWNPreferencesManager *prefs = [WWNPreferencesManager sharedManager];
-    NSString *password = nil;
-    if ([item.key isEqualToString:@"WaypipeSSHPassword"] ||
-        [item.key isEqualToString:@"SSHPassword"]) {
-      password = prefs.waypipeSSHPassword ?: prefs.sshPassword;
-    } else if ([item.key isEqualToString:@"WaypipeSSHKeyPassphrase"] ||
-               [item.key isEqualToString:@"SSHKeyPassphrase"]) {
-      password = prefs.waypipeSSHKeyPassphrase ?: prefs.sshKeyPassphrase;
-    }
-    if (password && password.length > 0) {
-      cell.detailTextLabel.text = @"Change";
-    } else {
-      cell.detailTextLabel.text = @"Set";
-    }
-    cell.accessoryType = UITableViewCellAccessoryNone;
-    cell.selectionStyle = UITableViewCellSelectionStyleDefault;
-  } else if (item.type == WSettingPopup) {
-    id val = [[NSUserDefaults standardUserDefaults] objectForKey:item.key];
-    if (!val) {
-      val = item.defaultValue;
-    }
-
-    // Special handling for Auth Method: convert integer to string
-    if ([item.key isEqualToString:@"WaypipeSSHAuthMethod"] ||
-        [item.key isEqualToString:@"SSHAuthMethod"]) {
-      NSInteger methodIndex =
-          [val isKindOfClass:[NSNumber class]] ? [val integerValue] : 0;
-      if (methodIndex >= 0 && methodIndex < (NSInteger)item.options.count) {
-        cell.detailTextLabel.text = item.options[methodIndex];
-      } else {
-        cell.detailTextLabel.text = item.options[0]; // Default to "Password"
-      }
-    } else {
-      // If optionValues exists, find display text from options by matching
-      // stored value
-      if (item.optionValues && item.optionValues.count == item.options.count) {
-        NSString *stored = [val description];
-        for (NSInteger i = 0; i < (NSInteger)item.optionValues.count; i++) {
-          if ([item.optionValues[i] isEqualToString:stored]) {
-            cell.detailTextLabel.text = item.options[i];
-            goto popup_done;
-          }
-        }
-      }
-      cell.detailTextLabel.text = [val description];
-    }
-  popup_done:
-    cell.accessoryType = UITableViewCellAccessoryNone;
-    cell.selectionStyle = UITableViewCellSelectionStyleDefault;
-  } else if (item.type == WSettingButton) {
-    cell.textLabel.textColor = [UIColor systemBlueColor];
-    cell.selectionStyle = UITableViewCellSelectionStyleDefault;
-  } else if (item.type == WSettingInfo) {
-    id val = [[NSUserDefaults standardUserDefaults] objectForKey:item.key];
-    if (!val) {
-      val = item.defaultValue;
-    }
-    if (usesSubtitleInfoCell) {
-      NSString *valueString = [val description] ?: @"";
-      cell.detailTextLabel.text = item.desc;
-      cell.detailTextLabel.numberOfLines = 2;
-      cell.detailTextLabel.textColor = [UIColor secondaryLabelColor];
-      if (valueString.length > 0) {
-        UILabel *valueLabel = [[UILabel alloc] init];
-        valueLabel.font = [UIFont systemFontOfSize:15];
-        valueLabel.textColor = [UIColor secondaryLabelColor];
-        valueLabel.textAlignment = NSTextAlignmentRight;
-        valueLabel.text = valueString;
-        [valueLabel sizeToFit];
-        cell.accessoryView = valueLabel;
-      }
-    } else {
-      cell.detailTextLabel.text = [val description];
-    }
-    cell.selectionStyle = UITableViewCellSelectionStyleDefault;
-    cell.accessoryType = UITableViewCellAccessoryNone;
-
-    // Reset image to avoid phantom reuse
-    cell.imageView.image = nil;
-
-    // Load icon image if URL provided (e.g. for Author profile pic)
-    if (item.iconURL) {
-      // Set a placeholder so UITableViewCell reserves space for the imageView
-      cell.imageView.image = [UIImage systemImageNamed:@"person.circle.fill"];
-      cell.imageView.layer.cornerRadius = 4;
-      cell.imageView.clipsToBounds = YES;
-      [[WWNImageLoader sharedLoader]
-          loadImageFromURL:item.iconURL
-                completion:^(WImage _Nullable image) {
-                  if (image &&
-                      [cell.textLabel.text isEqualToString:item.title]) {
-                    dispatch_async(dispatch_get_main_queue(), ^{
-                      cell.imageView.image = image;
-                      [cell setNeedsLayout];
-                    });
-                  }
-                }];
-    } else {
-      cell.imageView.image = nil;
-    }
-  } else if (item.type == WSettingLink) {
-    cell.textLabel.textColor = [UIColor systemBlueColor];
-    cell.detailTextLabel.text = item.desc;
-    cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
-    cell.selectionStyle = UITableViewCellSelectionStyleDefault;
-
-    // Reset image to avoid phantom reuse
-    cell.imageView.image = nil;
-
-    // Load icon image if URL provided (e.g. for GitHub, Ko-fi, etc.)
-    if (item.iconURL) {
-      // Set a placeholder so UITableViewCell reserves space for the imageView
-      cell.imageView.image = [UIImage systemImageNamed:@"link.circle.fill"];
-      cell.imageView.layer.cornerRadius = 4;
-      cell.imageView.clipsToBounds = YES;
-      [[WWNImageLoader sharedLoader]
-          loadImageFromURL:item.iconURL
-                completion:^(WImage _Nullable image) {
-                  if (image &&
-                      [cell.textLabel.text isEqualToString:item.title]) {
-                    dispatch_async(dispatch_get_main_queue(), ^{
-                      cell.imageView.image = image;
-                      [cell setNeedsLayout];
-                    });
-                  }
-                }];
-    }
-  } else if (item.type == WSettingHeader) {
-    // Android-style About header: vertically stacked, centered layout.
-    // Use a different reuse identifier so Auto Layout doesn't collide
-    // with the standard Value1 cells.
-    static NSString *const kHeaderID = @"AboutHeader";
-    UITableViewCell *headerCell =
-        [tv dequeueReusableCellWithIdentifier:kHeaderID];
-
-    if (!headerCell) {
-      headerCell =
-          [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault
-                                 reuseIdentifier:kHeaderID];
-      headerCell.selectionStyle = UITableViewCellSelectionStyleNone;
-      headerCell.backgroundColor = [UIColor clearColor];
-
-      UIStackView *stack = [[UIStackView alloc] init];
-      stack.axis = UILayoutConstraintAxisVertical;
-      stack.alignment = UIStackViewAlignmentCenter;
-      stack.spacing = 0;
-      stack.translatesAutoresizingMaskIntoConstraints = NO;
-      stack.tag = 900;
-      [headerCell.contentView addSubview:stack];
-
-      [NSLayoutConstraint activateConstraints:@[
-        [stack.topAnchor
-            constraintEqualToAnchor:headerCell.contentView.topAnchor
-                           constant:24],
-        [stack.bottomAnchor
-            constraintEqualToAnchor:headerCell.contentView.bottomAnchor
-                           constant:-24],
-        [stack.leadingAnchor
-            constraintEqualToAnchor:headerCell.contentView.leadingAnchor
-                           constant:20],
-        [stack.trailingAnchor
-            constraintEqualToAnchor:headerCell.contentView.trailingAnchor
-                           constant:-20]
-      ]];
-
-      // Logo
-      UIImageView *logo = [[UIImageView alloc] init];
-      logo.contentMode = UIViewContentModeScaleAspectFit;
-      logo.tag = 901;
-      [stack addArrangedSubview:logo];
-      [NSLayoutConstraint activateConstraints:@[
-        [logo.widthAnchor constraintEqualToConstant:100],
-        [logo.heightAnchor constraintEqualToConstant:100]
-      ]];
-
-      [stack setCustomSpacing:16 afterView:logo];
-
-      // App title
-      UILabel *titleLabel = [[UILabel alloc] init];
-      titleLabel.font = [UIFont systemFontOfSize:28 weight:UIFontWeightBold];
-      titleLabel.textAlignment = NSTextAlignmentCenter;
-      titleLabel.tag = 902;
-      [stack addArrangedSubview:titleLabel];
-
-      [stack setCustomSpacing:4 afterView:titleLabel];
-
-      // Version
-      UILabel *versionLabel = [[UILabel alloc] init];
-      versionLabel.font = [UIFont systemFontOfSize:15];
-      versionLabel.textColor = [UIColor secondaryLabelColor];
-      versionLabel.textAlignment = NSTextAlignmentCenter;
-      versionLabel.tag = 903;
-      [stack addArrangedSubview:versionLabel];
-
-      [stack setCustomSpacing:12 afterView:versionLabel];
-
-      // Description
-      UILabel *descLabel = [[UILabel alloc] init];
-      descLabel.font = [UIFont systemFontOfSize:15];
-      descLabel.textColor = [UIColor secondaryLabelColor];
-      descLabel.textAlignment = NSTextAlignmentCenter;
-      descLabel.numberOfLines = 0;
-      descLabel.tag = 904;
-      [stack addArrangedSubview:descLabel];
-    }
-
-    // Populate
-    UIImageView *logo = [headerCell.contentView viewWithTag:901];
-    UILabel *titleLabel = (UILabel *)[headerCell.contentView viewWithTag:902];
-    UILabel *versionLabel = (UILabel *)[headerCell.contentView viewWithTag:903];
-    UILabel *descLabel = (UILabel *)[headerCell.contentView viewWithTag:904];
-
-    UIImage *logoImage = WWNAboutLogo();
-    logo.image = logoImage;
-
-    titleLabel.text = item.title;
-
-    NSString *ver = [self getWWNVersion];
-    versionLabel.text = [NSString stringWithFormat:@"Version %@", ver];
-
-    descLabel.text = item.desc;
-
-    return headerCell;
-  }
-  return cell;
-}
-
-- (void)swChg:(UISwitch *)s {
-  WWNSettingItem *item;
-  if (self.activeSection) {
-    item = self.activeSection.items[s.tag % 1000];
-  } else {
-    item = self.sections[s.tag / 1000].items[s.tag % 1000];
-  }
-  [[NSUserDefaults standardUserDefaults] setBool:s.on forKey:item.key];
-}
-
-- (void)showHelpForSetting:(UIButton *)button {
-  NSInteger section = button.tag / 1000;
-  NSInteger row = button.tag % 1000;
-  WWNSettingItem *item;
-  if (self.activeSection) {
-    item = self.activeSection.items[row];
-  } else {
-    item = self.sections[section].items[row];
-  }
-  [self showHelpForSettingWithItem:item];
-}
-
-- (void)showHelpForSettingWithItem:(WWNSettingItem *)item {
-  UIAlertController *alert =
-      [UIAlertController alertControllerWithTitle:item.title
-                                          message:item.desc
-                                   preferredStyle:UIAlertControllerStyleAlert];
-
-  UIAlertAction *okAction =
-      [UIAlertAction actionWithTitle:@"OK"
-                               style:UIAlertActionStyleDefault
-                             handler:nil];
-  [alert addAction:okAction];
-
-  [self presentViewController:alert animated:YES completion:nil];
-}
-
-- (void)tableView:(UITableView *)tv didSelectRowAtIndexPath:(NSIndexPath *)ip {
-  [tv deselectRowAtIndexPath:ip animated:YES];
-  WWNSettingItem *item;
-  if (self.activeSection) {
-    item = self.activeSection.items[ip.row];
-  } else {
-    item = self.sections[ip.section].items[ip.row];
-  }
-
-#if TARGET_OS_IPHONE
-  // One-shot is fixed on iOS; tapping shows explanation.
-  if ([item.key isEqualToString:@"WaypipeOneshot"]) {
-    UIAlertController *alert = [UIAlertController
-        alertControllerWithTitle:item.title
-                         message:@"iOS does not allow disabling this feature."
-                  preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"OK"
-                                              style:UIAlertActionStyleDefault
-                                            handler:nil]];
-    [self presentViewController:alert animated:YES completion:nil];
-    return;
-  }
-  // Force SSD is fixed on iOS; CSD not supported.
-  if ([item.key isEqualToString:@"ForceServerSideDecorations"]) {
-    UIAlertController *alert = [UIAlertController
-        alertControllerWithTitle:item.title
-                         message:@"iOS does not support Client-Side Decoration "
-                                  "(CSD). Window decorations must be drawn by "
-                                  "the compositor, so Force Server-Side "
-                                  "Decorations is always enabled."
-                  preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"OK"
-                                              style:UIAlertActionStyleDefault
-                                            handler:nil]];
-    [self presentViewController:alert animated:YES completion:nil];
-    return;
-  }
-#endif
-
-  // For switch items with help buttons, show help when row is tapped
-  // Info buttons removed from waypipe switches per user request
-  // No action needed for switches - they're handled by swChg:
-
-  if (item.type == WSettingText || item.type == WSettingNumber) {
-    // Present text entry view controller
-    UIAlertController *alert = [UIAlertController
-        alertControllerWithTitle:item.title
-                         message:item.desc
-                  preferredStyle:UIAlertControllerStyleAlert];
-
-    [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
-      id currentValue =
-          [[NSUserDefaults standardUserDefaults] objectForKey:item.key];
-      if (!currentValue) {
-        currentValue = item.defaultValue;
-      }
-      textField.text = [currentValue description];
-      if (item.type == WSettingNumber) {
-        textField.keyboardType = UIKeyboardTypeNumbersAndPunctuation;
-      } else {
-        textField.keyboardType = UIKeyboardTypeDefault;
-      }
-      // Set placeholder text - special case for Remote Command
-      if ([item.key isEqualToString:@"WaypipeRemoteCommand"]) {
-        textField.placeholder = @"e.g. weston-terminal";
-      } else {
-        textField.placeholder = item.desc;
-      }
-    }];
-
-    UIAlertAction *cancelAction =
-        [UIAlertAction actionWithTitle:@"Cancel"
-                                 style:UIAlertActionStyleCancel
-                               handler:nil];
-    UIAlertAction *saveAction = [UIAlertAction
-        actionWithTitle:@"Save"
-                  style:UIAlertActionStyleDefault
-                handler:^(UIAlertAction *action) {
-                  UITextField *textField = alert.textFields.firstObject;
-                  NSString *value = textField.text;
-
-                  if (item.type == WSettingNumber) {
-                    NSNumber *numberValue = @([value doubleValue]);
-                    [[NSUserDefaults standardUserDefaults] setObject:numberValue
-                                                              forKey:item.key];
-                  } else {
-                    [[NSUserDefaults standardUserDefaults] setObject:value
-                                                              forKey:item.key];
-                  }
-                  // Reload the table view to show updated value
-                  [tv reloadRowsAtIndexPaths:@[ ip ]
-                            withRowAnimation:UITableViewRowAnimationNone];
-                }];
-
-    [alert addAction:cancelAction];
-    [alert addAction:saveAction];
-
-    [self presentViewController:alert animated:YES completion:nil];
-  } else if (item.type == WSettingPassword) {
-    // Single modal for password entry - always show entry field
-    // Saving a new password automatically overwrites any existing one
-    WWNPreferencesManager *prefs = [WWNPreferencesManager sharedManager];
-
-    UIAlertController *alert = [UIAlertController
-        alertControllerWithTitle:item.title
-                         message:item.desc
-                  preferredStyle:UIAlertControllerStyleAlert];
-
-    __block UITextField *passwordField = nil;
-    [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
-      passwordField = textField;
-      textField.secureTextEntry = YES;
-      textField.placeholder = @"Enter a Password...";
-      textField.text = @"";
-
-      // Add show/hide toggle button
-      UIButton *toggleButton = [UIButton buttonWithType:UIButtonTypeCustom];
-      [toggleButton setImage:[UIImage systemImageNamed:@"eye"]
-                    forState:UIControlStateNormal];
-      [toggleButton setImage:[UIImage systemImageNamed:@"eye.slash"]
-                    forState:UIControlStateSelected];
-      toggleButton.frame = CGRectMake(0, 0, 30, 30);
-      toggleButton.contentMode = UIViewContentModeCenter;
-      [toggleButton addTarget:self
-                       action:@selector(togglePasswordVisibility:)
-             forControlEvents:UIControlEventTouchUpInside];
-
-      // Store reference to text field in button for toggling
-      objc_setAssociatedObject(toggleButton, "passwordField", textField,
-                               OBJC_ASSOCIATION_ASSIGN);
-
-      textField.rightView = toggleButton;
-      textField.rightViewMode = UITextFieldViewModeAlways;
-    }];
-
-    UIAlertAction *cancelAction =
-        [UIAlertAction actionWithTitle:@"Cancel"
-                                 style:UIAlertActionStyleCancel
-                               handler:nil];
-
-    UIAlertAction *saveAction = [UIAlertAction
-        actionWithTitle:@"Save"
-                  style:UIAlertActionStyleDefault
-                handler:^(UIAlertAction *action) {
-                  NSString *value = passwordField.text;
-
-                  // Save password (overwrites existing if any)
-                  if ([item.key isEqualToString:@"WaypipeSSHPassword"]) {
-                    prefs.waypipeSSHPassword = value;
-                  } else if ([item.key
-                                 isEqualToString:@"WaypipeSSHKeyPassphrase"]) {
-                    prefs.waypipeSSHKeyPassphrase = value;
-                  } else if ([item.key isEqualToString:@"SSHPassword"]) {
-                    prefs.sshPassword = value;
-                  } else if ([item.key isEqualToString:@"SSHKeyPassphrase"]) {
-                    prefs.sshKeyPassphrase = value;
-                  }
-
-                  // Reload the table view to show updated value
-                  [tv reloadRowsAtIndexPaths:@[ ip ]
-                            withRowAnimation:UITableViewRowAnimationNone];
-                }];
-
-    [alert addAction:cancelAction];
-    [alert addAction:saveAction];
-
-    [self presentViewController:alert animated:YES completion:nil];
-  } else if (item.type == WSettingLink) {
-    // Open URL in browser
-    if (item.urlString) {
-      [self openURL:item.urlString];
-    }
-  } else if (item.type == WSettingHeader) {
-    // Header cells are not tappable
-    return;
-  } else if (item.type == WSettingInfo) {
-    // For info items, show copy dialog
-    id val = [[NSUserDefaults standardUserDefaults] objectForKey:item.key];
-    if (!val) {
-      val = item.defaultValue;
-    }
-    NSString *valueString = [val description];
-
-    UIAlertController *alert = [UIAlertController
-        alertControllerWithTitle:item.title
-                         message:[NSString stringWithFormat:@"%@\n\n%@",
-                                                            item.desc,
-                                                            valueString]
-                  preferredStyle:UIAlertControllerStyleAlert];
-
-    UIAlertAction *copyAction = [UIAlertAction
-        actionWithTitle:@"Copy"
-                  style:UIAlertActionStyleDefault
-                handler:^(UIAlertAction *action) {
-                  UIPasteboard *pasteboard = [UIPasteboard generalPasteboard];
-                  if ([UIApplication sharedApplication].applicationState ==
-                      UIApplicationStateActive) {
-                    pasteboard.string = valueString;
-                  }
-                }];
-
-    UIAlertAction *okAction =
-        [UIAlertAction actionWithTitle:@"OK"
-                                 style:UIAlertActionStyleCancel
-                               handler:nil];
-
-    [alert addAction:copyAction];
-    [alert addAction:okAction];
-
-    [self presentViewController:alert animated:YES completion:nil];
-  } else if (item.type == WSettingPopup) {
-    // Present popup selection
-    UIAlertController *alert = [UIAlertController
-        alertControllerWithTitle:item.title
-                         message:item.desc
-                  preferredStyle:UIAlertControllerStyleActionSheet];
-
-    id currentValue =
-        [[NSUserDefaults standardUserDefaults] objectForKey:item.key];
-    if (!currentValue) {
-      currentValue = item.defaultValue;
-    }
-
-    // Special handling for Auth Method: convert integer to string for
-    // comparison
-    NSString *currentValueString = nil;
-    NSInteger currentIndex = -1;
-    if ([item.key isEqualToString:@"WaypipeSSHAuthMethod"] ||
-        [item.key isEqualToString:@"SSHAuthMethod"]) {
-      currentIndex = [currentValue isKindOfClass:[NSNumber class]]
-                         ? [currentValue integerValue]
-                         : 0;
-      if (currentIndex >= 0 && currentIndex < (NSInteger)item.options.count) {
-        currentValueString = item.options[currentIndex];
-      } else {
-        currentValueString = item.options[0]; // Default to "Password"
-        currentIndex = 0;
-      }
-    } else {
-      currentValueString = [currentValue description];
-    }
-
-    for (NSInteger i = 0; i < (NSInteger)item.options.count; i++) {
-      NSString *option = item.options[i];
-      NSString *valueToStore =
-          (item.optionValues && i < (NSInteger)item.optionValues.count)
-              ? item.optionValues[i]
-              : option;
-      NSString *valueToStoreCopy = valueToStore;
-      NSInteger optionIndex = i;
-      UIAlertAction *optionAction = [UIAlertAction
-          actionWithTitle:option
-                    style:UIAlertActionStyleDefault
-                  handler:^(UIAlertAction *alertAction) {
-                    // For Auth Method, store as integer index
-                    if ([item.key isEqualToString:@"WaypipeSSHAuthMethod"] ||
-                        [item.key isEqualToString:@"SSHAuthMethod"]) {
-                      [[NSUserDefaults standardUserDefaults]
-                          setInteger:optionIndex
-                              forKey:item.key];
-                      // Auth method changed - rebuild sections to show
-                      // appropriate nested options
-                      self.sections = [self buildSections];
-                      [tv reloadData];
-                    } else {
-                      [[NSUserDefaults standardUserDefaults]
-                          setObject:valueToStoreCopy
-                             forKey:item.key];
-                      // Reload the table view to show updated value
-                      [tv reloadRowsAtIndexPaths:@[ ip ]
-                                withRowAnimation:UITableViewRowAnimationNone];
-                    }
-                  }];
-
-      // Mark current selection with checkmark
-      if ([item.key isEqualToString:@"WaypipeSSHAuthMethod"] ||
-          [item.key isEqualToString:@"SSHAuthMethod"]) {
-        if (i == currentIndex) {
-          [optionAction setValue:@YES forKey:@"checked"];
-        }
-      } else {
-        if ([valueToStore isEqualToString:currentValueString]) {
-          [optionAction setValue:@YES forKey:@"checked"];
-        }
-      }
-
-      [alert addAction:optionAction];
-    }
-
-    UIAlertAction *cancelAction =
-        [UIAlertAction actionWithTitle:@"Cancel"
-                                 style:UIAlertActionStyleCancel
-                               handler:nil];
-    [alert addAction:cancelAction];
-
-    // For iPad, we need to set the popover presentation
-    if (alert.popoverPresentationController) {
-      UITableViewCell *cell = [tv cellForRowAtIndexPath:ip];
-      alert.popoverPresentationController.sourceView = cell;
-      alert.popoverPresentationController.sourceRect = cell.bounds;
-    }
-
-    [self presentViewController:alert animated:YES completion:nil];
-  } else if (item.actionBlock) {
-    item.actionBlock();
-  }
-}
-
-#else
 
 // MARK: - macOS Interface
 
@@ -3901,17 +2038,7 @@ static UIImage *WWNAboutLogo(void) {
   [NSApp sendAction:@selector(toggleSidebar:) to:nil from:sender];
 }
 
-#endif
 
-#if TARGET_OS_IPHONE
-- (void)togglePasswordVisibility:(UIButton *)sender {
-  UITextField *textField = objc_getAssociatedObject(sender, "passwordField");
-  if (textField) {
-    textField.secureTextEntry = !textField.secureTextEntry;
-    sender.selected = !textField.secureTextEntry;
-  }
-}
-#endif
 
 - (void)previewWaypipeCommand {
   id runner = [WWNWaypipeRunner sharedRunner];
@@ -3964,7 +2091,6 @@ static UIImage *WWNAboutLogo(void) {
 
 // MARK: - Helper Implementations
 
-#if !TARGET_OS_IPHONE
 
 @implementation WWNPreferencesSidebar
 - (void)loadView {
@@ -4785,4 +2911,3 @@ static UIImage *WWNAboutLogo(void) {
 
 @end
 
-#endif

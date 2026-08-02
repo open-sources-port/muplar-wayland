@@ -1,7 +1,7 @@
 //! Linux DMABuf Protocol Implementation
 //!
 //! This module provides the linux-dmabuf protocol implementation for Wawona.
-//! 
+//!
 //! # How It Works
 //!
 //! On macOS, DMABUF handling is delegated to waypipe which uses kosmickrisp
@@ -24,14 +24,12 @@
 //! 3. waypipe-client uses kosmickrisp Vulkan to import the buffer
 //! 4. Buffer is rendered via Metal on macOS
 
-use wayland_server::{
-    Dispatch, DisplayHandle, GlobalDispatch, Resource,
-};
-use wayland_protocols::wp::linux_dmabuf::zv1::server::{
-    zwp_linux_dmabuf_v1, zwp_linux_buffer_params_v1,
-};
 use std::os::fd::IntoRawFd;
 use std::os::fd::RawFd;
+use wayland_protocols::wp::linux_dmabuf::zv1::server::{
+    zwp_linux_buffer_params_v1, zwp_linux_dmabuf_v1,
+};
+use wayland_server::{Dispatch, DisplayHandle, GlobalDispatch, Resource};
 
 use crate::core::state::CompositorState;
 use std::collections::HashMap;
@@ -59,7 +57,6 @@ impl DmabufBufferParamsData {
 pub struct LinuxDmabufState {
     pub pending_params: HashMap<(wayland_server::backend::ClientId, u32), DmabufBufferParamsData>,
 }
-
 
 // CoreFoundation/IOSurface bindings (Apple platforms only)
 #[cfg(target_vendor = "apple")]
@@ -103,20 +100,20 @@ impl GlobalDispatch<zwp_linux_dmabuf_v1::ZwpLinuxDmabufV1, ()> for CompositorSta
         data_init: &mut wayland_server::DataInit<'_, Self>,
     ) {
         let dmabuf = data_init.init(resource, ());
-        
+
         // Advertise formats (ARGB8888, XRGB8888, BGRA8888, BGRX8888)
         // 0x34325241 = ARGB8888
         // 0x34325258 = XRGB8888
         // 0x34324142 = BGRA8888
         // 0x34325842 = BGRX8888
-        dmabuf.format(0x34325241); 
+        dmabuf.format(0x34325241);
         dmabuf.format(0x34325258);
         dmabuf.format(0x34324142);
         dmabuf.format(0x34325842);
-        
+
         // Modifier event (format + modifier)
         // 0 = DRM_FORMAT_MOD_LINEAR
-        dmabuf.modifier(0x34325241, 0, 0); 
+        dmabuf.modifier(0x34325241, 0, 0);
         dmabuf.modifier(0x34325258, 0, 0);
         dmabuf.modifier(0x34324142, 0, 0);
         dmabuf.modifier(0x34325842, 0, 0);
@@ -142,13 +139,16 @@ impl Dispatch<zwp_linux_dmabuf_v1::ZwpLinuxDmabufV1, ()> for CompositorState {
                     flags: 0,
                     planes: Vec::new(),
                 };
-                let _: zwp_linux_buffer_params_v1::ZwpLinuxBufferParamsV1 = data_init.init(params_id, params);
+                let _: zwp_linux_buffer_params_v1::ZwpLinuxBufferParamsV1 =
+                    data_init.init(params_id, params);
             }
             zwp_linux_dmabuf_v1::Request::GetDefaultFeedback { id } => {
-               let _: zwp_linux_dmabuf_feedback_v1::ZwpLinuxDmabufFeedbackV1 = data_init.init(id, ());
+                let _: zwp_linux_dmabuf_feedback_v1::ZwpLinuxDmabufFeedbackV1 =
+                    data_init.init(id, ());
             }
             zwp_linux_dmabuf_v1::Request::GetSurfaceFeedback { id, surface: _ } => {
-               let _: zwp_linux_dmabuf_feedback_v1::ZwpLinuxDmabufFeedbackV1 = data_init.init(id, ());
+                let _: zwp_linux_dmabuf_feedback_v1::ZwpLinuxDmabufFeedbackV1 =
+                    data_init.init(id, ());
             }
             zwp_linux_dmabuf_v1::Request::Destroy => {}
             _ => {}
@@ -176,7 +176,9 @@ impl Dispatch<zwp_linux_dmabuf_feedback_v1::ZwpLinuxDmabufFeedbackV1, ()> for Co
     }
 }
 
-impl Dispatch<zwp_linux_buffer_params_v1::ZwpLinuxBufferParamsV1, BufferParams> for CompositorState {
+impl Dispatch<zwp_linux_buffer_params_v1::ZwpLinuxBufferParamsV1, BufferParams>
+    for CompositorState
+{
     fn request(
         state: &mut Self,
         _client: &wayland_server::Client,
@@ -187,18 +189,36 @@ impl Dispatch<zwp_linux_buffer_params_v1::ZwpLinuxBufferParamsV1, BufferParams> 
         data_init: &mut wayland_server::DataInit<'_, Self>,
     ) {
         match request {
-            zwp_linux_buffer_params_v1::Request::Add { fd, plane_idx, offset, stride, modifier_hi, modifier_lo } => {
+            zwp_linux_buffer_params_v1::Request::Add {
+                fd,
+                plane_idx,
+                offset,
+                stride,
+                modifier_hi,
+                modifier_lo,
+            } => {
                 let modifier = ((modifier_hi as u64) << 32) | (modifier_lo as u64);
-                tracing::debug!("linux-dmabuf: Received plane {} (modifier=0x{:016x})", plane_idx, modifier);
-                
+                tracing::debug!(
+                    "linux-dmabuf: Received plane {} (modifier=0x{:016x})",
+                    plane_idx,
+                    modifier
+                );
+
                 let params_id = resource.id().protocol_id();
                 let client_id = _client.id();
-                let p = state.ext.linux_dmabuf.pending_params.entry((client_id, params_id)).or_default();
-                
+                let p = state
+                    .ext
+                    .linux_dmabuf
+                    .pending_params
+                    .entry((client_id, params_id))
+                    .or_default();
+
                 // Store FD by converting to raw (we own it now)
                 let raw_fd = fd.into_raw_fd();
                 if stride == 0 {
-                    unsafe { libc::close(raw_fd); }
+                    unsafe {
+                        libc::close(raw_fd);
+                    }
                     resource.failed();
                     return;
                 }
@@ -207,10 +227,20 @@ impl Dispatch<zwp_linux_buffer_params_v1::ZwpLinuxBufferParamsV1, BufferParams> 
                 p.strides.push(stride);
                 p.modifiers.push(modifier);
             }
-            zwp_linux_buffer_params_v1::Request::Create { width, height, format, flags: _ } => {
+            zwp_linux_buffer_params_v1::Request::Create {
+                width,
+                height,
+                format,
+                flags: _,
+            } => {
                 let params_id = resource.id().protocol_id();
                 let client_id = _client.id();
-                if let Some(p) = state.ext.linux_dmabuf.pending_params.remove(&(client_id.clone(), params_id)) {
+                if let Some(p) = state
+                    .ext
+                    .linux_dmabuf
+                    .pending_params
+                    .remove(&(client_id.clone(), params_id))
+                {
                     if p.fds.is_empty() || width <= 0 || height <= 0 {
                         close_raw_fds(&p.fds);
                         resource.failed();
@@ -224,19 +254,17 @@ impl Dispatch<zwp_linux_buffer_params_v1::ZwpLinuxBufferParamsV1, BufferParams> 
                         tracing::info!("linux-dmabuf: Importing IOSurface ID {} (Asynchronous) from modifier 0x{:016x}", surface_id, modifier);
 
                         use crate::core::surface::buffer::{Buffer, BufferType, NativeBufferData};
-                        use wayland_server::Resource;
                         use wayland_server::protocol::wl_buffer::WlBuffer;
-                        
+                        use wayland_server::Resource;
+
                         // Manually create the wl_buffer resource since 'created' event creates it
-                        let buffer_resource = _client.create_resource::<WlBuffer, (), CompositorState>(
-                            _dhandle,
-                            1,
-                            (),
-                        ).expect("Failed to create wl_buffer resource");
+                        let buffer_resource = _client
+                            .create_resource::<WlBuffer, (), CompositorState>(_dhandle, 1, ())
+                            .expect("Failed to create wl_buffer resource");
 
                         // Emit 'created' event with the new resource
                         resource.created(&buffer_resource);
-                        
+
                         let internal_id = buffer_resource.id().protocol_id();
 
                         let buffer = Buffer::new(
@@ -247,10 +275,13 @@ impl Dispatch<zwp_linux_buffer_params_v1::ZwpLinuxBufferParamsV1, BufferParams> 
                                 height,
                                 format,
                             }),
-                            Some(buffer_resource.clone())
+                            Some(buffer_resource.clone()),
                         );
 
-                        state.buffers.insert((client_id, internal_id), std::sync::Arc::new(std::sync::RwLock::new(buffer)));
+                        state.buffers.insert(
+                            (client_id, internal_id),
+                            std::sync::Arc::new(std::sync::RwLock::new(buffer)),
+                        );
                         close_raw_fds(&p.fds);
                     } else {
                         close_raw_fds(&p.fds);
@@ -260,49 +291,62 @@ impl Dispatch<zwp_linux_buffer_params_v1::ZwpLinuxBufferParamsV1, BufferParams> 
                     resource.failed();
                 }
             }
-            zwp_linux_buffer_params_v1::Request::CreateImmed { buffer_id, width, height, format, flags: _ } => {
-               
+            zwp_linux_buffer_params_v1::Request::CreateImmed {
+                buffer_id,
+                width,
+                height,
+                format,
+                flags: _,
+            } => {
                 let params_id = resource.id().protocol_id();
                 let client_id = _client.id();
-                if let Some(p) = state.ext.linux_dmabuf.pending_params.remove(&(client_id.clone(), params_id)) {
-                     if p.fds.is_empty() || width <= 0 || height <= 0 {
-                         close_raw_fds(&p.fds);
-                         resource.failed();
-                         return;
-                     }
-                     let modifier = p.modifiers.first().copied().unwrap_or(0);
+                if let Some(p) = state
+                    .ext
+                    .linux_dmabuf
+                    .pending_params
+                    .remove(&(client_id.clone(), params_id))
+                {
+                    if p.fds.is_empty() || width <= 0 || height <= 0 {
+                        close_raw_fds(&p.fds);
+                        resource.failed();
+                        return;
+                    }
+                    let modifier = p.modifiers.first().copied().unwrap_or(0);
 
-                     let is_iosurface = (modifier & 0x8000_0000_0000_0000) != 0;
-                     if is_iosurface {
-                         let surface_id = (modifier & 0x7FFF_FFFF_FFFF_FFFF) as u32;
-                         tracing::info!("linux-dmabuf: Importing IOSurface ID {} (Immediate) from modifier 0x{:016x}", surface_id, modifier);
-                         
-                         // Create the buffer stored in CompositorState
-                         use crate::core::surface::buffer::{Buffer, BufferType, NativeBufferData};
-                         use wayland_server::Resource;
-                         
-                         let buffer_resource = data_init.init(buffer_id, ());
-                         let internal_id = buffer_resource.id().protocol_id();
-                         
-                         let buffer = Buffer::new(
-                             internal_id,
-                             BufferType::Native(NativeBufferData {
-                                 id: surface_id as u64,
-                                 width,
-                                 height,
-                                 format,
-                             }),
-                             Some(buffer_resource.clone())
-                         );
-                         
-                         state.buffers.insert((client_id, internal_id), std::sync::Arc::new(std::sync::RwLock::new(buffer)));
-                         close_raw_fds(&p.fds);
-                         
-                         // Note: We don't send 'created' event for CreateImmed.
-                     } else {
-                         close_raw_fds(&p.fds);
-                         resource.failed();
-                     }
+                    let is_iosurface = (modifier & 0x8000_0000_0000_0000) != 0;
+                    if is_iosurface {
+                        let surface_id = (modifier & 0x7FFF_FFFF_FFFF_FFFF) as u32;
+                        tracing::info!("linux-dmabuf: Importing IOSurface ID {} (Immediate) from modifier 0x{:016x}", surface_id, modifier);
+
+                        // Create the buffer stored in CompositorState
+                        use crate::core::surface::buffer::{Buffer, BufferType, NativeBufferData};
+                        use wayland_server::Resource;
+
+                        let buffer_resource = data_init.init(buffer_id, ());
+                        let internal_id = buffer_resource.id().protocol_id();
+
+                        let buffer = Buffer::new(
+                            internal_id,
+                            BufferType::Native(NativeBufferData {
+                                id: surface_id as u64,
+                                width,
+                                height,
+                                format,
+                            }),
+                            Some(buffer_resource.clone()),
+                        );
+
+                        state.buffers.insert(
+                            (client_id, internal_id),
+                            std::sync::Arc::new(std::sync::RwLock::new(buffer)),
+                        );
+                        close_raw_fds(&p.fds);
+
+                        // Note: We don't send 'created' event for CreateImmed.
+                    } else {
+                        close_raw_fds(&p.fds);
+                        resource.failed();
+                    }
                 } else {
                     resource.failed();
                 }
@@ -312,7 +356,6 @@ impl Dispatch<zwp_linux_buffer_params_v1::ZwpLinuxBufferParamsV1, BufferParams> 
         }
     }
 }
-
 
 /// Register zwp_linux_dmabuf_v1 global
 pub fn register_linux_dmabuf(display: &DisplayHandle) -> wayland_server::backend::GlobalId {

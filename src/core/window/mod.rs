@@ -1,8 +1,8 @@
-pub mod window;
-pub mod tree;
 pub mod focus;
-pub mod resize;
 pub mod fullscreen;
+pub mod resize;
 mod tests;
+pub mod tree;
+pub mod window;
 
-pub use window::{Window, DecorationMode};
+pub use window::{DecorationMode, Window};

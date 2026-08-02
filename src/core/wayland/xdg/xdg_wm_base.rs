@@ -3,10 +3,8 @@
 //! This implements the xdg_wm_base global protocol from the xdg-shell extension.
 //! It provides the entry point for clients to create xdg_surface objects.
 
-use wayland_server::{
-    Dispatch, DisplayHandle, GlobalDispatch, Resource,
-};
 use crate::core::wayland::protocol::server::xdg::shell::server::xdg_wm_base;
+use wayland_server::{Dispatch, DisplayHandle, GlobalDispatch, Resource};
 
 use crate::core::state::{CompositorState, XdgSurfaceData};
 
@@ -23,8 +21,15 @@ impl GlobalDispatch<xdg_wm_base::XdgWmBase, ()> for CompositorState {
     ) {
         let xdg_wm_base = data_init.init(resource, ());
         let client_id = _client.id();
-        state.xdg.shell_resources.insert((client_id, xdg_wm_base.id().protocol_id()), xdg_wm_base.clone());
-        crate::wlog!(crate::util::logging::COMPOSITOR, "Bound xdg_wm_base version {}", xdg_wm_base.version());
+        state.xdg.shell_resources.insert(
+            (client_id, xdg_wm_base.id().protocol_id()),
+            xdg_wm_base.clone(),
+        );
+        crate::wlog!(
+            crate::util::logging::COMPOSITOR,
+            "Bound xdg_wm_base version {}",
+            xdg_wm_base.version()
+        );
         tracing::debug!("Bound xdg_wm_base");
     }
 }
@@ -48,14 +53,21 @@ impl Dispatch<xdg_wm_base::XdgWmBase, ()> for CompositorState {
                         // Diagnostic logging for the crash
                         let protocol_id = surface.id().protocol_id();
                         let client_id = _client.id();
-                        let internal_id = state.protocol_to_internal_surface.get(&(client_id.clone(), protocol_id)).copied();
-                        
-                        crate::wlog!(crate::util::logging::COMPOSITOR, 
-                            "WARNING: WlSurface {} missing u32 user data! Client={:?}. Fallback internal_id={:?}", 
+                        let internal_id = state
+                            .protocol_to_internal_surface
+                            .get(&(client_id.clone(), protocol_id))
+                            .copied();
+
+                        crate::wlog!(crate::util::logging::COMPOSITOR,
+                            "WARNING: WlSurface {} missing u32 user data! Client={:?}. Fallback internal_id={:?}",
                             protocol_id, client_id, internal_id);
-                        
+
                         internal_id.unwrap_or_else(|| {
-                            tracing::error!("CRITICAL: No mapping found for surface {} for client {:?}", protocol_id, client_id);
+                            tracing::error!(
+                                "CRITICAL: No mapping found for surface {} for client {:?}",
+                                protocol_id,
+                                client_id
+                            );
                             protocol_id // Last resort fallback
                         })
                     }
@@ -64,11 +76,19 @@ impl Dispatch<xdg_wm_base::XdgWmBase, ()> for CompositorState {
                 // Store the surface ID (u32) as user data for the resource
                 let xdg_surface: crate::core::wayland::protocol::server::xdg::shell::server::xdg_surface::XdgSurface = data_init.init(id, surface_id);
                 xdg_surface_data.resource = Some(xdg_surface.clone());
-                
+
                 let client_id = _client.id();
-                state.xdg.surfaces.insert((client_id, xdg_surface.id().protocol_id()), xdg_surface_data);
-                
-                crate::wlog!(crate::util::logging::COMPOSITOR, "Created xdg_surface version {} for wl_surface {}", xdg_surface.version(), surface_id);
+                state.xdg.surfaces.insert(
+                    (client_id, xdg_surface.id().protocol_id()),
+                    xdg_surface_data,
+                );
+
+                crate::wlog!(
+                    crate::util::logging::COMPOSITOR,
+                    "Created xdg_surface version {} for wl_surface {}",
+                    xdg_surface.version(),
+                    surface_id
+                );
             }
             xdg_wm_base::Request::CreatePositioner { id } => {
                 data_init.init(id, ());
@@ -78,12 +98,20 @@ impl Dispatch<xdg_wm_base::XdgWmBase, ()> for CompositorState {
                 // Clear the pending ping record — client is responsive
                 if let Some((_client_id, shell_id, ts)) = state.xdg.pending_pings.remove(&serial) {
                     let latency_ms = ts.elapsed().as_millis();
-                    tracing::trace!("xdg_wm_base pong: serial={}, shell={}, latency={}ms", serial, shell_id, latency_ms);
+                    tracing::trace!(
+                        "xdg_wm_base pong: serial={}, shell={}, latency={}ms",
+                        serial,
+                        shell_id,
+                        latency_ms
+                    );
                 }
             }
             xdg_wm_base::Request::Destroy => {
                 let client_id = _client.id();
-                state.xdg.shell_resources.remove(&(client_id, _resource.id().protocol_id()));
+                state
+                    .xdg
+                    .shell_resources
+                    .remove(&(client_id, _resource.id().protocol_id()));
                 tracing::debug!("xdg_wm_base destroyed");
             }
             _ => {}

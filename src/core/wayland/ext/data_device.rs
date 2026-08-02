@@ -6,7 +6,6 @@
 //! - Drag-and-drop between applications
 //! - MIME type negotiation
 
-
 use std::os::unix::io::AsFd;
 use wayland_server::{
     protocol::{
@@ -14,7 +13,6 @@ use wayland_server::{
         wl_data_device_manager::{self, WlDataDeviceManager},
         wl_data_offer::{self, WlDataOffer},
         wl_data_source::{self, WlDataSource},
-
     },
     Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, New, Resource,
 };
@@ -113,7 +111,6 @@ impl Default for DataDeviceState {
     }
 }
 
-
 // ============================================================================
 // wl_data_device_manager implementation
 // ============================================================================
@@ -146,18 +143,24 @@ impl Dispatch<WlDataDeviceManager, ()> for CompositorState {
                 let source = data_init.init(id, ());
                 let mut source_data = DataSourceData::new();
                 source_data.resource = Some(source.clone());
-                state.data.sources.insert(source.id().protocol_id(), source_data);
-                
+                state
+                    .data
+                    .sources
+                    .insert(source.id().protocol_id(), source_data);
+
                 tracing::debug!("Created data source");
             }
             wl_data_device_manager::Request::GetDataDevice { id, seat } => {
                 let device = data_init.init(id, ());
-                let device_data = DataDeviceData { 
+                let device_data = DataDeviceData {
                     seat_id: seat.id().protocol_id(),
                     resource: device.clone(),
                 };
-                state.data.devices.insert(device.id().protocol_id(), device_data);
-                
+                state
+                    .data
+                    .devices
+                    .insert(device.id().protocol_id(), device_data);
+
                 tracing::debug!("Created data device for seat");
             }
             _ => {}
@@ -180,7 +183,7 @@ impl Dispatch<WlDataSource, ()> for CompositorState {
         _data_init: &mut DataInit<'_, Self>,
     ) {
         let source_id = resource.id().protocol_id();
-        
+
         match request {
             wl_data_source::Request::Offer { mime_type } => {
                 tracing::debug!("Data source offers MIME type: {}", mime_type);
@@ -191,7 +194,9 @@ impl Dispatch<WlDataSource, ()> for CompositorState {
             wl_data_source::Request::SetActions { dnd_actions } => {
                 tracing::debug!("Data source set DnD actions: {:?}", dnd_actions);
                 if let Some(data) = state.data.sources.get_mut(&source_id) {
-                    data.dnd_actions = dnd_actions.into_result().unwrap_or(wayland_server::protocol::wl_data_device_manager::DndAction::empty());
+                    data.dnd_actions = dnd_actions.into_result().unwrap_or(
+                        wayland_server::protocol::wl_data_device_manager::DndAction::empty(),
+                    );
                 }
             }
             wl_data_source::Request::Destroy => {
@@ -230,11 +235,13 @@ impl Dispatch<WlDataDevice, ()> for CompositorState {
                     source.is_some(),
                     icon.is_some()
                 );
-                
+
                 let source_id = source.as_ref().map(|s| s.id().protocol_id());
 
                 // start_drag requires the current implicit-grab serial.
-                if serial != state.seat.pointer.last_button_serial || state.seat.pointer.button_count == 0 {
+                if serial != state.seat.pointer.last_button_serial
+                    || state.seat.pointer.button_count == 0
+                {
                     tracing::debug!(
                         "Ignoring start_drag with invalid serial {} (last button serial: {}, button_count: {})",
                         serial,
@@ -287,7 +294,7 @@ impl Dispatch<WlDataDevice, ()> for CompositorState {
                     serial,
                     source.is_some()
                 );
-                
+
                 if let Some(source) = source.as_ref() {
                     let source_id = source.id().protocol_id();
                     if let Some(source_data) = state.data.sources.get_mut(&source_id) {
@@ -299,7 +306,9 @@ impl Dispatch<WlDataDevice, ()> for CompositorState {
                     }
                 }
 
-                let selection_source = source.as_ref().map(|s| crate::core::state::SelectionSource::Wayland(s.clone()));
+                let selection_source = source
+                    .as_ref()
+                    .map(|s| crate::core::state::SelectionSource::Wayland(s.clone()));
                 state.set_clipboard_source(_dhandle, selection_source);
             }
             wl_data_device::Request::Release => {
@@ -316,7 +325,11 @@ impl Dispatch<WlDataDevice, ()> for CompositorState {
 // ============================================================================
 
 /// Compute the negotiated DnD action from source and destination preferences.
-fn negotiated_dnd_action(source_actions: DndAction, dest_actions: DndAction, preferred: Option<DndAction>) -> DndAction {
+fn negotiated_dnd_action(
+    source_actions: DndAction,
+    dest_actions: DndAction,
+    preferred: Option<DndAction>,
+) -> DndAction {
     let allowed = source_actions & dest_actions;
     if allowed.is_empty() {
         return DndAction::empty();
@@ -365,14 +378,19 @@ impl Dispatch<WlDataOffer, ()> for CompositorState {
                         if let Some(source_data) = state.data.sources.get(&source_id) {
                             if let Some(src) = source_data.resource.as_ref() {
                                 src.send(mime_type, fd.as_fd());
-                                tracing::debug!("Forwarded receive to wl_data_source {}", source_id);
+                                tracing::debug!(
+                                    "Forwarded receive to wl_data_source {}",
+                                    source_id
+                                );
                             }
                         }
                     } else {
                         // Synthetic host-to-guest selection source
-                        if let Some(crate::core::state::SelectionSource::Host(text)) = &state.seat.current_selection {
+                        if let Some(crate::core::state::SelectionSource::Host(text)) =
+                            &state.seat.current_selection
+                        {
                             use std::io::Write;
-                            use std::os::unix::io::{FromRawFd, AsRawFd};
+                            use std::os::unix::io::{AsRawFd, FromRawFd};
                             let fd_raw = fd.as_raw_fd();
                             let dup_fd = unsafe { libc::dup(fd_raw) };
                             if dup_fd >= 0 {
@@ -391,7 +409,9 @@ impl Dispatch<WlDataOffer, ()> for CompositorState {
             }
             wl_data_offer::Request::Finish => {
                 let offer_id = resource.id().protocol_id();
-                let (source_id, negotiated) = if let Some(offer_data) = state.data.offers.get(&offer_id) {
+                let (source_id, negotiated) = if let Some(offer_data) =
+                    state.data.offers.get(&offer_id)
+                {
                     let dest_actions = offer_data.preferred_action.unwrap_or(DndAction::empty());
                     let negotiated = negotiated_dnd_action(
                         offer_data.source_dnd_actions,
@@ -412,7 +432,10 @@ impl Dispatch<WlDataOffer, ()> for CompositorState {
                         }
                     }
                 }
-                tracing::debug!("Data offer finished (DnD complete), action={:?}", negotiated);
+                tracing::debug!(
+                    "Data offer finished (DnD complete), action={:?}",
+                    negotiated
+                );
             }
             wl_data_offer::Request::SetActions {
                 dnd_actions,

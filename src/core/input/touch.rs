@@ -1,7 +1,7 @@
 use std::collections::HashMap;
-use wayland_server::Resource;
-use wayland_server::protocol::wl_touch::WlTouch;
 use wayland_server::protocol::wl_surface::WlSurface;
+use wayland_server::protocol::wl_touch::WlTouch;
+use wayland_server::Resource;
 
 /// A single active touch point
 #[derive(Debug, Clone)]

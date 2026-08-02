@@ -6,13 +6,8 @@
 //
 
 #import <Foundation/Foundation.h>
-#if TARGET_OS_IPHONE || TARGET_OS_SIMULATOR
-#import <UIKit/UIKit.h>
-typedef UIView WWNNativeView;
-#else
 #import <Cocoa/Cocoa.h>
 typedef NSView WWNNativeView;
-#endif
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -23,11 +18,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic, readonly) WWNNativeView *parentView;
 - (instancetype)initWithParentView:(WWNNativeView *)parentView;
 
-#if TARGET_OS_IPHONE || TARGET_OS_SIMULATOR
-- (void)showAtPoint:(CGPoint)point inView:(UIView *)parentView;
-#else
 - (void)showAtScreenPoint:(CGPoint)point;
-#endif
 
 - (void)dismiss;
 

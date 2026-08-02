@@ -5,8 +5,8 @@
 //! logically grouped together.
 
 use wayland_server::{
-    protocol::{wl_seat, wl_pointer, wl_keyboard, wl_touch},
-    Dispatch, Resource, DisplayHandle, GlobalDispatch,
+    protocol::{wl_keyboard, wl_pointer, wl_seat, wl_touch},
+    Dispatch, DisplayHandle, GlobalDispatch, Resource,
 };
 
 use crate::core::state::CompositorState;
@@ -39,8 +39,14 @@ impl GlobalDispatch<wl_seat::WlSeat, SeatGlobal> for CompositorState {
         data_init: &mut wayland_server::DataInit<'_, Self>,
     ) {
         let seat = data_init.init(resource, ());
-        crate::wlog!(crate::util::logging::SEAT, "DEBUG: Seat Bind Called for client {:?}", _client.id());
-        state.seat_resources.insert(seat.id().protocol_id(), seat.clone());
+        crate::wlog!(
+            crate::util::logging::SEAT,
+            "DEBUG: Seat Bind Called for client {:?}",
+            _client.id()
+        );
+        state
+            .seat_resources
+            .insert(seat.id().protocol_id(), seat.clone());
 
         // Send capabilities (touch only when touch support is active).
         let mut caps = wl_seat::Capability::Pointer | wl_seat::Capability::Keyboard;
@@ -48,12 +54,12 @@ impl GlobalDispatch<wl_seat::WlSeat, SeatGlobal> for CompositorState {
             caps |= wl_seat::Capability::Touch;
         }
         seat.capabilities(caps);
-        
+
         // Send name (version 2+)
         if seat.version() >= 2 {
             seat.name(global_data.name.clone());
         }
-        
+
         tracing::debug!("Bound wl_seat with pointer+keyboard capabilities");
     }
 }
@@ -72,17 +78,20 @@ impl Dispatch<wl_seat::WlSeat, ()> for CompositorState {
             wl_seat::Request::GetPointer { id } => {
                 let pointer = data_init.init(id, ());
                 tracing::debug!("Created wl_pointer");
-                
+
                 state.seat.add_pointer(pointer);
             }
             wl_seat::Request::GetKeyboard { id } => {
                 let keyboard = data_init.init(id, ());
                 crate::wlog!(crate::util::logging::SEAT, "Created wl_keyboard resource");
-                
+
                 let serial = state.next_serial();
                 state.seat.add_keyboard(keyboard, serial);
-                crate::wlog!(crate::util::logging::SEAT, "Added keyboard to seat (total: {})", 
-                    state.seat.keyboard.resources.len());
+                crate::wlog!(
+                    crate::util::logging::SEAT,
+                    "Added keyboard to seat (total: {})",
+                    state.seat.keyboard.resources.len()
+                );
             }
             wl_seat::Request::GetTouch { id } => {
                 let touch = data_init.init(id, ());
@@ -98,11 +107,9 @@ impl Dispatch<wl_seat::WlSeat, ()> for CompositorState {
     }
 }
 
-
 // ============================================================================
 // Helpers
 // ============================================================================
-
 
 // ============================================================================
 // wl_keyboard
@@ -165,7 +172,12 @@ impl Dispatch<wl_pointer::WlPointer, ()> for CompositorState {
         _data_init: &mut wayland_server::DataInit<'_, Self>,
     ) {
         match request {
-             wl_pointer::Request::SetCursor { serial, surface, hotspot_x, hotspot_y } => {
+            wl_pointer::Request::SetCursor {
+                serial,
+                surface,
+                hotspot_x,
+                hotspot_y,
+            } => {
                 // wl_pointer.set_cursor is only valid for the latest enter serial.
                 if serial != state.seat.pointer.last_enter_serial {
                     tracing::debug!(
@@ -223,16 +235,24 @@ impl Dispatch<wl_pointer::WlPointer, ()> for CompositorState {
                 );
 
                 if let Some(sid) = internal_surface_id {
-                    tracing::debug!("Seat cursor set to surface {} at ({}, {})", sid, hotspot_x, hotspot_y);
+                    tracing::debug!(
+                        "Seat cursor set to surface {} at ({}, {})",
+                        sid,
+                        hotspot_x,
+                        hotspot_y
+                    );
                 } else {
                     tracing::debug!("Seat cursor hidden");
                 }
-             }
-             wl_pointer::Request::Release => {
-                state.seat.pointer.resources.retain(|p| p.id() != resource.id());
-             }
-             _ => {}
+            }
+            wl_pointer::Request::Release => {
+                state
+                    .seat
+                    .pointer
+                    .resources
+                    .retain(|p| p.id() != resource.id());
+            }
+            _ => {}
         }
     }
 }
-

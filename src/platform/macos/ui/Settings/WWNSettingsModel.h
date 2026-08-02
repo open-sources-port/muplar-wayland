@@ -1,11 +1,7 @@
 #import "WWNSettingsDefines.h"
 #import <Foundation/Foundation.h>
 
-#if TARGET_OS_IPHONE
-#import <UIKit/UIKit.h>
-#else
 #import <AppKit/AppKit.h>
-#endif
 
 @interface WWNSettingItem : NSObject
 @property(nonatomic, copy) NSString *title;
@@ -34,10 +30,6 @@
 @interface WWNPreferencesSection : NSObject
 @property(nonatomic, copy) NSString *title;
 @property(nonatomic, copy) NSString *icon;
-#if TARGET_OS_IPHONE
-@property(nonatomic, strong) UIColor *iconColor;
-#else
 @property(nonatomic, strong) NSColor *iconColor;
-#endif
 @property(nonatomic, strong) NSArray<WWNSettingItem *> *items;
 @end

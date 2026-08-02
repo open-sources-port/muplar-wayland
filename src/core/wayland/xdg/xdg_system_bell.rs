@@ -2,12 +2,8 @@
 //!
 //! Allows clients to request system bell/notification sounds.
 
-use wayland_server::{
-    Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, New, Resource,
-};
-use wayland_protocols::xdg::system_bell::v1::server::{
-    xdg_system_bell_v1::{self, XdgSystemBellV1},
-};
+use wayland_protocols::xdg::system_bell::v1::server::xdg_system_bell_v1::{self, XdgSystemBellV1};
+use wayland_server::{Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, New, Resource};
 
 use crate::core::state::CompositorState;
 

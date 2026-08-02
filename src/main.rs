@@ -1,5 +1,5 @@
-use muplar_wayland::platform::{Platform, api::StubPlatform};
 use anyhow::Result;
+use muplar_wayland::platform::{api::StubPlatform, Platform};
 
 fn main() -> Result<()> {
     // Initialize logging
@@ -9,7 +9,9 @@ fn main() -> Result<()> {
     }
     // Initialize logging with standardized format
     tracing_subscriber::fmt()
-        .with_timer(tracing_subscriber::fmt::time::ChronoLocal::new("%Y-%m-%d %H:%M:%S".to_string()))
+        .with_timer(tracing_subscriber::fmt::time::ChronoLocal::new(
+            "%Y-%m-%d %H:%M:%S".to_string(),
+        ))
         .with_ansi(false)
         .init();
 
@@ -18,7 +20,7 @@ fn main() -> Result<()> {
     if args.len() > 1 && (args[1] == "--version" || args[1] == "-v") {
         let version = include_str!("../VERSION").trim();
         println!("Muplar Wayland Compositor v{}", version);
-        
+
         // Get macOS version
         #[cfg(target_os = "macos")]
         {
@@ -33,14 +35,14 @@ fn main() -> Result<()> {
         {
             println!("{}", std::env::consts::OS);
         }
-        
+
         println!("{}", std::env::consts::ARCH);
         return Ok(());
     }
 
     // Create a stub platform app (actual frontends are native/FFI)
     let mut app = StubPlatform;
-    
+
     // Initialize the platform (this sets up the event loop, etc.)
     app.initialize()?;
 

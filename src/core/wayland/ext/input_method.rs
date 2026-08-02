@@ -7,13 +7,11 @@
 //!   behind `desktop-protocols` feature) — full IME engine integration for
 //!   external engines like IBus and Fcitx.
 
-use wayland_server::{
-    Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, New, Resource,
-};
 use wayland_protocols::wp::input_method::zv1::server::{
-    zwp_input_panel_v1::{self, ZwpInputPanelV1},
     zwp_input_panel_surface_v1::{self, ZwpInputPanelSurfaceV1},
+    zwp_input_panel_v1::{self, ZwpInputPanelV1},
 };
+use wayland_server::{Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, New, Resource};
 
 use crate::core::state::CompositorState;
 
@@ -91,10 +89,10 @@ pub fn register_input_panel(display: &DisplayHandle) -> wayland_server::backend:
 mod input_method_v2 {
     use super::*;
     use crate::core::wayland::protocol::server::zwp_input_method_v2::{
+        zwp_input_method_keyboard_grab_v2::{self, ZwpInputMethodKeyboardGrabV2},
         zwp_input_method_manager_v2::{self, ZwpInputMethodManagerV2},
         zwp_input_method_v2::{self, ZwpInputMethodV2},
         zwp_input_popup_surface_v2::{self, ZwpInputPopupSurfaceV2},
-        zwp_input_method_keyboard_grab_v2::{self, ZwpInputMethodKeyboardGrabV2},
     };
 
     // ------------------------------------------------------------------
@@ -210,10 +208,7 @@ mod input_method_v2 {
                     if state.ext.input_method.resource.is_some() {
                         // Only one input method per seat — send unavailable.
                         im_res.unavailable();
-                        tracing::warn!(
-                            "Rejected second input method binding for seat {}",
-                            seat_id
-                        );
+                        tracing::warn!("Rejected second input method binding for seat {}", seat_id);
                     } else {
                         state.ext.input_method.resource = Some(im_res);
                         tracing::info!("Input method bound for seat {}", seat_id);
@@ -250,15 +245,13 @@ mod input_method_v2 {
                     cursor_begin,
                     cursor_end,
                 } => {
-                    state.ext.input_method.pending_preedit =
-                        Some((text, cursor_begin, cursor_end));
+                    state.ext.input_method.pending_preedit = Some((text, cursor_begin, cursor_end));
                 }
                 zwp_input_method_v2::Request::DeleteSurroundingText {
                     before_length,
                     after_length,
                 } => {
-                    state.ext.input_method.pending_delete =
-                        Some((before_length, after_length));
+                    state.ext.input_method.pending_delete = Some((before_length, after_length));
                 }
                 zwp_input_method_v2::Request::Commit { serial } => {
                     // Validate serial: must match the number of done events sent.
@@ -300,10 +293,7 @@ mod input_method_v2 {
                 zwp_input_method_v2::Request::GetInputPopupSurface { id, surface } => {
                     let _popup = data_init.init(id, ());
                     let sid = surface.id().protocol_id();
-                    tracing::debug!(
-                        "Input method popup surface created for surface {}",
-                        sid
-                    );
+                    tracing::debug!("Input method popup surface created for surface {}", sid);
                 }
                 zwp_input_method_v2::Request::GrabKeyboard { keyboard } => {
                     let _grab = data_init.init(keyboard, ());
@@ -376,10 +366,9 @@ mod input_method_v2 {
     pub fn register_input_method_manager(
         display: &DisplayHandle,
     ) -> wayland_server::backend::GlobalId {
-        display
-            .create_global::<CompositorState, ZwpInputMethodManagerV2, ()>(1, ())
+        display.create_global::<CompositorState, ZwpInputMethodManagerV2, ()>(1, ())
     }
 }
 
 #[cfg(feature = "desktop-protocols")]
-pub use input_method_v2::{InputMethodState, register_input_method_manager};
+pub use input_method_v2::{register_input_method_manager, InputMethodState};

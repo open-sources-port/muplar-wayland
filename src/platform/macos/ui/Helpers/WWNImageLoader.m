@@ -53,11 +53,7 @@
 
     dispatch_async(
         dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-#if TARGET_OS_IPHONE
-          WImage image = [[UIImage alloc] initWithContentsOfFile:fullPath];
-#else
           WImage image = [[NSImage alloc] initWithContentsOfFile:fullPath];
-#endif
           dispatch_async(dispatch_get_main_queue(), ^{
             if (completion) {
               completion(image);
@@ -82,11 +78,7 @@
   if ([[NSFileManager defaultManager] fileExistsAtPath:cacheFile]) {
     dispatch_async(
         dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-#if TARGET_OS_IPHONE
-          WImage image = [[UIImage alloc] initWithContentsOfFile:cacheFile];
-#else
           WImage image = [[NSImage alloc] initWithContentsOfFile:cacheFile];
-#endif
           dispatch_async(dispatch_get_main_queue(), ^{
             if (completion) {
               completion(image);
@@ -117,11 +109,7 @@
           // Save to cache
           [data writeToFile:cacheFile atomically:YES];
 
-#if TARGET_OS_IPHONE
-          WImage image = [[UIImage alloc] initWithData:data];
-#else
         WImage image = [[NSImage alloc] initWithData:data];
-#endif
           dispatch_async(dispatch_get_main_queue(), ^{
             if (completion) {
               completion(image);

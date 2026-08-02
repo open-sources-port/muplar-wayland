@@ -9,9 +9,7 @@
 #import <Cocoa/Cocoa.h>
 #import <IOSurface/IOSurfaceRef.h>
 #import <QuartzCore/QuartzCore.h> // For CALayer
-#if !TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
 #import <ApplicationServices/ApplicationServices.h> // CGSetDisplayTransferByTable, etc.
-#endif
 #include <stdatomic.h>
 #include <string.h> // For strdup
 
@@ -136,7 +134,6 @@ extern void WWNRenderSceneFree(CRenderScene *scene);
 
 // MARK: - Cursor Shape Mapping
 
-#if !TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
 // static NSCursor *NSCursorFromWaylandShape(uint32_t shape) {
 //   switch (shape) {
 //   case 1:
@@ -211,20 +208,18 @@ extern void WWNRenderSceneFree(CRenderScene *scene);
 //     return [NSCursor arrowCursor];
 //   }
 // }
-#endif
 
-#if !TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
 // static void handle_cursor_shape_update(uint32_t shape) {
 //   dispatch_async(dispatch_get_main_queue(), ^{
 //     NSCursor *cursor = NSCursorFromWaylandShape(shape);
 //     [cursor set];
 //   });
 // }
-#endif
 
 @implementation WWNCompositorBridge {
   void *_rustCore;
   NSTimer *_eventTimer;
+  dispatch_source_t _protocolTimer;
   CADisplayLink *_displayLink;
 
   // Serial queue for all Rust FFI calls. Keeps heavy compositor work
@@ -238,15 +233,11 @@ extern void WWNRenderSceneFree(CRenderScene *scene);
   // main thread; without barriers, ARM64 weak ordering can cause the
   // main thread to read a stale YES and skip ticks indefinitely.
   atomic_bool _compositorBusy;
+  atomic_bool _protocolBusy;
 
-#if TARGET_OS_IPHONE || TARGET_OS_SIMULATOR
-  NSMutableDictionary<NSNumber *, id> *_windows;
-  NSMutableDictionary<NSNumber *, id> *_popups;
-#else
   NSMutableDictionary<NSNumber *, id>
       *_windows; /* WWNWindow or NSWindow (popup) */
   NSMutableDictionary<NSNumber *, id<WWNPopupHost>> *_popups;
-#endif
   // Scene Graph caches
   NSMutableDictionary<NSNumber *, id> *_bufferCache;
   NSMutableDictionary<NSNumber *, CALayer *> *_surfaceLayers;
@@ -267,13 +258,11 @@ extern void WWNRenderSceneFree(CRenderScene *scene);
   uint32_t _sentOutputH;
   float _sentOutputScale;
 
-#if !TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
   // Saved gamma for restore (nested compositor may not use; main display only)
   CGGammaValue *_savedGammaRed;
   CGGammaValue *_savedGammaGreen;
   CGGammaValue *_savedGammaBlue;
   uint32_t _savedGammaSize;
-#endif
 }
 
 + (instancetype)sharedBridge {
@@ -331,28 +320,10 @@ extern void WWNRenderSceneFree(CRenderScene *scene);
   // On iOS, use NSTemporaryDirectory() (sandboxed).
   NSString *runtimeDir;
 
-#if TARGET_OS_IPHONE || TARGET_OS_SIMULATOR
-#if TARGET_OS_SIMULATOR
-  // Simulator: use a short path to stay within the 104-byte Unix socket
-  // sun_path limit.  NSTemporaryDirectory() on the simulator maps to the
-  // host's CoreSimulator container which can be 150+ chars.
-  runtimeDir =
-      [NSString stringWithFormat:@"/tmp/wawona_sim_%u", (unsigned)getuid()];
-#else
-  // Device: NSTemporaryDirectory()/w — matches WWNPreferredSharedRuntimeDir()
-  // in WWNPreferencesManager.m so the waypipe runner finds the socket.
-  runtimeDir = NSTemporaryDirectory();
-  if (!runtimeDir) {
-    runtimeDir = [NSHomeDirectory() stringByAppendingPathComponent:@"tmp"];
-  }
-  runtimeDir = [runtimeDir stringByAppendingPathComponent:@"w"];
-#endif
-#else
   // macOS: use /tmp/wawona-<uid> matching the client wrapper scripts in
   // flake.nix
   uid_t uid = getuid();
   runtimeDir = [NSString stringWithFormat:@"/tmp/wawona-%u", uid];
-#endif
 
   // Ensure it exists with restricted permissions
   NSFileManager *fm = [NSFileManager defaultManager];
@@ -429,26 +400,6 @@ extern void WWNRenderSceneFree(CRenderScene *scene);
       WWNLog("BRIDGE", @"Compositor started successfully!");
     }
 
-#if TARGET_OS_IPHONE || TARGET_OS_SIMULATOR
-    // iOS: Use CADisplayLink on the main thread for smooth animation pacing.
-    _displayLink =
-        [CADisplayLink displayLinkWithTarget:self
-                                    selector:@selector(onDisplayLink:)];
-    [_displayLink addToRunLoop:[NSRunLoop mainRunLoop]
-                       forMode:NSRunLoopCommonModes];
-
-    // Observer lifecycle to pause/resume
-    [[NSNotificationCenter defaultCenter]
-        addObserver:self
-           selector:@selector(applicationWillResignActive)
-               name:UIApplicationWillResignActiveNotification
-             object:nil];
-    [[NSNotificationCenter defaultCenter]
-        addObserver:self
-           selector:@selector(applicationDidBecomeActive)
-               name:UIApplicationDidBecomeActiveNotification
-             object:nil];
-#else
     // macOS: NSTimer at ~60fps for frame pacing
     // (CADisplayLink.displayLinkWithTarget:selector: is unavailable on macOS;
     //  CVDisplayLink is the macOS alternative but adds complexity.
@@ -461,7 +412,29 @@ extern void WWNRenderSceneFree(CRenderScene *scene);
                                         repeats:YES];
     [[NSRunLoop mainRunLoop] addTimer:_eventTimer forMode:NSRunLoopCommonModes];
     WWNLog("BRIDGE", @"Using NSTimer for frame pacing (60fps)");
-#endif
+
+    _protocolTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0,
+                                            _compositorQueue);
+    if (_protocolTimer) {
+      dispatch_source_set_timer(_protocolTimer, DISPATCH_TIME_NOW,
+                                5 * NSEC_PER_MSEC, 1 * NSEC_PER_MSEC);
+      __weak WWNCompositorBridge *weakSelf = self;
+      dispatch_source_set_event_handler(_protocolTimer, ^{
+        WWNCompositorBridge *strongSelf = weakSelf;
+        if (!strongSelf || !strongSelf->_rustCore ||
+            atomic_exchange(&strongSelf->_protocolBusy, true))
+          return;
+
+        bool ok = WWNCoreProcessEvents(strongSelf->_rustCore);
+        if (ok)
+          WWNCoreFlushClients(strongSelf->_rustCore);
+        else
+          WWNLog("BRIDGE", @"Protocol pump skipped after event-loop failure");
+        atomic_store(&strongSelf->_protocolBusy, false);
+      });
+      dispatch_resume(_protocolTimer);
+      WWNLog("BRIDGE", @"Using GCD protocol pump (5ms)");
+    }
 
   } else {
     WWNLog("BRIDGE", @"Error: Start failed");
@@ -474,13 +447,6 @@ extern void WWNRenderSceneFree(CRenderScene *scene);
   WWNLog("BRIDGE", @"Stopping compositor bridge...");
 
   // 1. Stop timers first — no new ticks will be scheduled after this.
-#if TARGET_OS_IPHONE || TARGET_OS_SIMULATOR
-  if (_displayLink) {
-    [_displayLink invalidate];
-    _displayLink = nil;
-  }
-  [[NSNotificationCenter defaultCenter] removeObserver:self];
-#else
   if (_displayLink) {
     [_displayLink invalidate];
     _displayLink = nil;
@@ -489,7 +455,10 @@ extern void WWNRenderSceneFree(CRenderScene *scene);
     [_eventTimer invalidate];
     _eventTimer = nil;
   }
-#endif
+  if (_protocolTimer) {
+    dispatch_source_cancel(_protocolTimer);
+    _protocolTimer = nil;
+  }
 
   // 2. Drain the compositor queue: wait for any in-flight tick to finish,
   //    then stop the Rust compositor.  dispatch_sync is safe here because
@@ -511,7 +480,6 @@ extern void WWNRenderSceneFree(CRenderScene *scene);
   NSUInteger windowCount = [_windows count];
   if (windowCount > 0) {
     WWNLog("BRIDGE", @"Closing %lu window(s)...", (unsigned long)windowCount);
-#if !TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
     // Popup windows are also indexed in _windows for rendering. Dismiss them
     // through their sole owner before walking the remaining toplevels.
     for (id<WWNPopupHost> popup in [[_popups allValues] copy])
@@ -525,13 +493,13 @@ extern void WWNRenderSceneFree(CRenderScene *scene);
       [window orderOut:nil];
       [window setContentView:nil];
     }
-#endif
     [_windows removeAllObjects];
   }
 
   [_bufferCache removeAllObjects];
   [_surfaceLayers removeAllObjects];
   atomic_store(&_compositorBusy, false);
+  atomic_store(&_protocolBusy, false);
   [_latestResizeDims removeAllObjects];
   [_sentResizeDims removeAllObjects];
   [_resizeInFlightWindows removeAllObjects];
@@ -571,19 +539,6 @@ extern void WWNRenderSceneFree(CRenderScene *scene);
 
 // MARK: - Event Processing
 
-#if TARGET_OS_IPHONE || TARGET_OS_SIMULATOR
-
-- (void)applicationWillResignActive {
-  WWNLog("BRIDGE", @"App resigning active - pausing display link");
-  _displayLink.paused = YES;
-}
-
-- (void)applicationDidBecomeActive {
-  WWNLog("BRIDGE", @"App became active - resuming display link");
-  _displayLink.paused = NO;
-}
-
-#endif
 
 /// Shared compositor tick implementation.
 /// Called from CADisplayLink (iOS) or NSTimer (macOS).  The callback fires
@@ -728,10 +683,6 @@ extern void WWNRenderSceneFree(CRenderScene *scene);
             [self updateLayerForNode:&scene->nodes[i]];
           }
 
-#if TARGET_OS_IPHONE || TARGET_OS_SIMULATOR
-          // Forward cursor rendering info to all iOS window views
-          [self _updateCursorFromScene:scene];
-#endif
         } @catch (NSException *exception) {
           WWNLog("TICK", @"Exception applying render scene: %@ (%@)",
                  exception.name, exception.reason);
@@ -739,7 +690,6 @@ extern void WWNRenderSceneFree(CRenderScene *scene);
         WWNRenderSceneFree(scene);
       }
 
-#if !TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
       // Screencopy: capture window and write to client buffer
       if (!self->_rustCore) {
         WWNLog("TICK", @"Rust core became NULL before post-scene tasks");
@@ -771,7 +721,6 @@ extern void WWNRenderSceneFree(CRenderScene *scene);
       if (restoreOutputId != 0) {
         [self _restoreGamma];
       }
-#endif
 
       // Reset AFTER all main-queue UI work is done so the next compositor
       // tick cannot mutate _bufferCache while we are still reading it.
@@ -891,7 +840,6 @@ extern void WWNRenderSceneFree(CRenderScene *scene);
     _surfaceLayers[surfId] = layer;
 
     // Attach to window hierarchy (toplevels and popups both in _windows)
-#if !TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
     id host = _windows[winId];
     if (!host) {
       id<WWNPopupHost> popup = _popups[winId];
@@ -903,26 +851,8 @@ extern void WWNRenderSceneFree(CRenderScene *scene);
         [host respondsToSelector:@selector(contentLayer)]) {
       [((WWNView *)host).contentLayer addSublayer:layer];
     }
-#else
-    UIView *hostView = _windows[winId];
-    if (!hostView)
-      hostView = _popups[winId];
-    if ([hostView isKindOfClass:[WWNCompositorView_ios class]]) {
-      [((WWNCompositorView_ios *)hostView).contentLayer addSublayer:layer];
-      WWNLog("RENDER",
-             @"Created layer for surf=%@ → attached to win=%@ contentLayer",
-             surfId, winId);
-    } else {
-      WWNLog("RENDER",
-             @"WARNING: No host view for surf=%@ win=%@ (_windows has %lu "
-             @"entries, _popups has %lu)",
-             surfId, winId, (unsigned long)_windows.count,
-             (unsigned long)_popups.count);
-    }
-#endif
   }
 
-#if !TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
   if (node->buffer_id != 0) {
     id w = _windows[winId];
     if (w && [w isKindOfClass:[NSWindow class]]) {
@@ -932,7 +862,6 @@ extern void WWNRenderSceneFree(CRenderScene *scene);
       }
     }
   }
-#endif
 
   // Disable implicit animations so layer property changes are instantaneous.
   // During rotation, an active animation context would capture these changes
@@ -982,7 +911,6 @@ extern void WWNRenderSceneFree(CRenderScene *scene);
   }];
 }
 
-#if !TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
 /// Write ARGB8888 screen capture to buffer. Returns YES on success.
 - (BOOL)_writeCaptureToBuffer:(const CScreencopyRequest *)req {
   if (!req || req->capture_id == 0 || req->ptr == NULL || req->width == 0 ||
@@ -1121,7 +1049,6 @@ extern void WWNRenderSceneFree(CRenderScene *scene);
     _savedGammaSize = 0;
   }
 }
-#endif
 
 // MARK: - Input (Stubs)
 
@@ -1611,34 +1538,22 @@ extern void WWNWindowInfoFree(CWindowInfo *info);
     [self handlePopupRepositioned:event];
     break;
   case CWindowEventTypeMoveRequested:
-#if !TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
     [self handleWindowMoveRequested:event];
-#endif
     break;
   case CWindowEventTypeResizeRequested:
-#if !TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
     [self handleWindowResizeRequested:event];
-#endif
     break;
   case CWindowEventTypeDecorationModeChanged:
-#if !TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
     [self handleDecorationModeChanged:event];
-#endif
     break;
   case CWindowEventTypeMinimizeRequested:
-#if !TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
     [self handleWindowMinimizeRequested:event];
-#endif
     break;
   case CWindowEventTypeMaximizeRequested:
-#if !TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
     [self handleWindowMaximizeRequested:event];
-#endif
     break;
   case CWindowEventTypeUnmaximizeRequested:
-#if !TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
     [self handleWindowUnmaximizeRequested:event];
-#endif
     break;
   case CWindowEventTypeCloseRequested:
     [self handleWindowCloseRequested:event];
@@ -1666,16 +1581,10 @@ extern void WWNWindowInfoFree(CWindowInfo *info);
 }
 
 // Window Management
-#if TARGET_OS_IPHONE || TARGET_OS_SIMULATOR
-- (NSMutableDictionary<NSNumber *, id> *)windows {
-  return _windows;
-#else
 - (NSMutableDictionary<NSNumber *, WWNWindow *> *)windows {
   return (NSMutableDictionary<NSNumber *, WWNWindow *> *)_windows;
-#endif
 }
 
-#if !TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
 
 - (void)handleWindowCreated:(CWindowEvent *)event {
   WWNLog("BRIDGE",
@@ -1822,7 +1731,6 @@ extern void WWNWindowInfoFree(CWindowInfo *info);
 
 - (void)handleWindowMoveRequested:(CWindowEvent *)event {
   WWNLog("BRIDGE", @"handleWindowMoveRequested: id=%llu", event->window_id);
-#if !TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
   WWNWindow *window = _windows[@(event->window_id)];
   if (!window)
     return;
@@ -1834,7 +1742,6 @@ extern void WWNWindowInfoFree(CWindowInfo *info);
   } else if (window.lastMouseDownEvent) {
     [window performWindowDragWithEvent:window.lastMouseDownEvent];
   }
-#endif
 }
 
 - (void)handleDecorationModeChanged:(CWindowEvent *)event {
@@ -1878,7 +1785,6 @@ extern void WWNWindowInfoFree(CWindowInfo *info);
 - (void)handleWindowResizeRequested:(CWindowEvent *)event {
   WWNLog("BRIDGE", @"handleWindowResizeRequested: id=%llu edges=%u",
          event->window_id, event->edges);
-#if !TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
   WWNWindow *window = _windows[@(event->window_id)];
   if (!window)
     return;
@@ -1940,22 +1846,18 @@ extern void WWNWindowInfoFree(CWindowInfo *info);
 
                         [window setFrame:newFrame display:YES];
                       }];
-#endif
 }
 
 - (void)handleWindowMinimizeRequested:(CWindowEvent *)event {
   WWNLog("BRIDGE", @"handleWindowMinimizeRequested: id=%llu", event->window_id);
-#if !TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
   WWNWindow *window = _windows[@(event->window_id)];
   if (window) {
     [window miniaturize:nil];
   }
-#endif
 }
 
 - (void)handleWindowMaximizeRequested:(CWindowEvent *)event {
   WWNLog("BRIDGE", @"handleWindowMaximizeRequested: id=%llu", event->window_id);
-#if !TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
   WWNWindow *window = _windows[@(event->window_id)];
   if (window) {
     if (![window isZoomed]) {
@@ -1972,13 +1874,11 @@ extern void WWNWindowInfoFree(CWindowInfo *info);
           }];
     }
   }
-#endif
 }
 
 - (void)handleWindowUnmaximizeRequested:(CWindowEvent *)event {
   WWNLog("BRIDGE", @"handleWindowUnmaximizeRequested: id=%llu",
          event->window_id);
-#if !TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
   WWNWindow *window = _windows[@(event->window_id)];
   if (window) {
     if ([window isZoomed]) {
@@ -1995,12 +1895,10 @@ extern void WWNWindowInfoFree(CWindowInfo *info);
           }];
     }
   }
-#endif
 }
 
 - (void)handleWindowCloseRequested:(CWindowEvent *)event {
   WWNLog("BRIDGE", @"handleWindowCloseRequested: id=%llu", event->window_id);
-#if !TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
   NSWindow *window = [_windows objectForKey:@(event->window_id)];
   if (window) {
     if ([window isKindOfClass:[WWNWindow class]]) {
@@ -2009,24 +1907,9 @@ extern void WWNWindowInfoFree(CWindowInfo *info);
     [window orderOut:nil];
     [self requestWindowClose:event->window_id];
   }
-#else
-  UIView *view = [_windows objectForKey:@(event->window_id)];
-  if (view) {
-    [view removeFromSuperview];
-    [_windows removeObjectForKey:@(event->window_id)];
-  }
-#endif
 }
 
 - (void)handleWindowDestroyed:(CWindowEvent *)event {
-#if TARGET_OS_IPHONE || TARGET_OS_SIMULATOR
-  UIView *view = [_windows objectForKey:@(event->window_id)];
-  if (view) {
-    [view removeFromSuperview];
-    [_windows removeObjectForKey:@(event->window_id)];
-    WWNLog("BRIDGE", @"Removed iOS view for window %llu", event->window_id);
-  }
-#else
   // Popup host windows are also present in _windows so render layers can find
   // them. They must be removed only through WWNPopupHost; treating one as a
   // toplevel first releases its content/animation state twice.
@@ -2080,7 +1963,6 @@ extern void WWNWindowInfoFree(CWindowInfo *info);
     }
     WWNLog("BRIDGE", @"Destroyed window %llu", event->window_id);
   }
-#endif
 
   id<WWNPopupHost> popup = [_popups objectForKey:@(event->window_id)];
   if (popup) {
@@ -2233,7 +2115,6 @@ extern void WWNWindowInfoFree(CWindowInfo *info);
   [popup showAtScreenPoint:topLeft];
 }
 
-#endif // !TARGET_OS_IPHONE
 
 - (NSUInteger)pendingWindowCount {
   if (!_rustCore) {
@@ -2246,274 +2127,6 @@ extern void WWNWindowInfoFree(CWindowInfo *info);
   return nil;
 }
 
-#if TARGET_OS_IPHONE || TARGET_OS_SIMULATOR
-
-/// Forward Wayland cursor surface info to all iOS compositor views so they
-/// can render a cursor layer in touchpad mode.
-- (void)_updateCursorFromScene:(CRenderScene *)scene {
-  if (!scene)
-    return;
-
-  // Look up the cached cursor image (keyed by buffer_id)
-  id cursorImage = nil;
-  if (scene->has_cursor && scene->cursor_buffer_id > 0) {
-    cursorImage = _bufferCache[@(scene->cursor_buffer_id)];
-  }
-
-  for (NSNumber *key in _windows) {
-    id view = _windows[key];
-    if ([view isKindOfClass:[WWNCompositorView_ios class]]) {
-      WWNCompositorView_ios *iosView = (WWNCompositorView_ios *)view;
-      if (scene->has_cursor) {
-        [iosView updateCursorImage:cursorImage
-                             width:scene->cursor_width
-                            height:scene->cursor_height
-                          hotspotX:scene->cursor_hotspot_x
-                          hotspotY:scene->cursor_hotspot_y];
-      } else {
-        [iosView updateCursorImage:nil width:0 height:0 hotspotX:0 hotspotY:0];
-      }
-    }
-  }
-}
-
-- (void)handleWindowCreated:(CWindowEvent *)event {
-  WWNLog(
-      "BRIDGE", @"iOS handleWindowCreated: id=%llu %ux%u fullscreen_shell=%u",
-      event->window_id, event->width, event->height, event->fullscreen_shell);
-
-  // Use the container's current bounds so the surface fills it edge-to-edge.
-  // fullscreen_shell (kiosk) and normal toplevels both fill the container;
-  // iOS has no separate window chrome.
-  // autoresizingMask keeps the surface view in sync when the container
-  // resizes (e.g. on device rotation or safe-area toggle).
-  CGRect frame = self.containerView
-                     ? self.containerView.bounds
-                     : CGRectMake(0, 0, event->width, event->height);
-  WWNCompositorView_ios *view =
-      [[WWNCompositorView_ios alloc] initWithFrame:frame];
-  view.wwnWindowId = event->window_id;
-  view.autoresizingMask =
-      UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-
-  if (self.containerView) {
-    [self.containerView insertSubview:view atIndex:0];
-    WWNLog("BRIDGE", @"Added window %llu to container (%.0fx%.0f)",
-           event->window_id, frame.size.width, frame.size.height);
-  } else {
-    WWNLog("BRIDGE", @"Warning: No containerView set, window %llu not visible",
-           event->window_id);
-  }
-
-  [_windows setObject:view forKey:@(event->window_id)];
-
-  // Fullscreen shell (kiosk) windows are display-only surfaces presented
-  // behind the primary toplevel.  Activating them would steal keyboard
-  // focus from the toplevel, sending a deactivation configure that makes
-  // nested compositors like weston exit.  Skip activation entirely.
-  if (event->fullscreen_shell) {
-    WWNLog("BRIDGE", @"Fullscreen shell window %llu — skipping activation",
-           event->window_id);
-    return;
-  }
-
-  // Activate synchronously BEFORE any layoutSubviews can fire.
-  // We use the "silent" variant that sets the activation flag without
-  // emitting a configure, then injectWindowResize sends a single
-  // configure with both the correct size AND activation state.
-  // This avoids the ordering problem where calling them separately
-  // produces either a deactivated or 0x0 configure.
-  uint64_t windowId = event->window_id;
-  WWNLog("BRIDGE", @"Activating new window %llu", windowId);
-
-  // 1. Set activated=true in Rust without sending a configure.
-  [self _dispatchToRust:^{
-    WWNCoreSetWindowActivatedSilent(self->_rustCore, windowId, true);
-  }];
-
-  // 2. Resize sends ONE configure: correct size + Activated state.
-  CGRect viewFrame = self.containerView ? self.containerView.bounds
-                                        : CGRectMake(0, 0, 800, 600);
-  [self injectWindowResize:windowId
-                     width:(uint32_t)viewFrame.size.width
-                    height:(uint32_t)viewFrame.size.height];
-
-  // 3. Input focus events.
-  [self injectKeyboardEnterForWindow:windowId keys:@[]];
-
-  double cx = viewFrame.size.width / 2.0;
-  double cy = viewFrame.size.height / 2.0;
-  [self injectPointerEnterForWindow:windowId x:cx y:cy timestamp:0];
-
-  // 4. Flush immediately so events reach the wire NOW, before
-  //    activateKeyboard triggers a UIKit keyboard animation that
-  //    blocks the main queue and prevents _compositorTick from firing.
-  //    Without this, mode_successful feedback is delayed ~2s and
-  //    weston times out waiting for it.
-  [self _dispatchToRust:^{
-    WWNCoreFlushClients(self->_rustCore);
-  }];
-
-  // 5. Make the view first responder (iOS keyboard).
-  [view activateKeyboard];
-}
-
-- (void)handleWindowDestroyed:(CWindowEvent *)event {
-  WWNLog("BRIDGE", @"iOS handleWindowDestroyed: id=%llu", event->window_id);
-  UIView *window = [_windows objectForKey:@(event->window_id)];
-  if (window) {
-    [window removeFromSuperview];
-    [_windows removeObjectForKey:@(event->window_id)];
-  }
-
-  // Also check if it's a popup
-  UIView *popup = (UIView *)[_popups objectForKey:@(event->window_id)];
-  if (popup) {
-    [popup removeFromSuperview];
-    [_popups removeObjectForKey:@(event->window_id)];
-    WWNLog("BRIDGE", @"iOS popup %llu destroyed", event->window_id);
-  }
-}
-
-- (void)handleWindowTitleChanged:(CWindowEvent *)event {
-  if (!event->title)
-    return;
-  NSString *newTitle = [NSString stringWithUTF8String:event->title];
-  WWNLog("BRIDGE", @"iOS handleWindowTitleChanged: window %llu → '%@'",
-         event->window_id, newTitle);
-
-  // Update the UIWindowScene title so it appears in the app switcher
-  // and iPad Stage Manager.
-  UIWindowScene *scene = nil;
-  for (UIScene *s in [UIApplication sharedApplication].connectedScenes) {
-    if ([s isKindOfClass:[UIWindowScene class]]) {
-      scene = (UIWindowScene *)s;
-      break;
-    }
-  }
-  if (scene) {
-    scene.title = newTitle;
-  }
-}
-
-- (void)handleWindowSizeChanged:(CWindowEvent *)event {
-  UIView *window = [_windows objectForKey:@(event->window_id)];
-  if (window) {
-    // Always fill the container — the Wayland client is told the output
-    // dimensions via wl_output.mode so its buffer already matches.
-    // Using the container's bounds ensures edge-to-edge drawing.
-    if (self.containerView) {
-      window.frame = self.containerView.bounds;
-    } else {
-      window.frame = CGRectMake(window.frame.origin.x, window.frame.origin.y,
-                                event->width, event->height);
-    }
-  }
-}
-
-- (void)handlePopupCreated:(CWindowEvent *)event {
-  WWNLog("BRIDGE",
-         @"iOS handlePopupCreated: id=%llu parent=%llu at (%d,%d) "
-         @"size=%ux%u",
-         event->window_id, event->parent_id, event->x, event->y, event->width,
-         event->height);
-
-  // Find the parent view -- it can be a window or another popup
-  UIView *parentView = nil;
-  UIView *parentWindowView =
-      (UIView *)[_windows objectForKey:@(event->parent_id)];
-  UIView *parentPopupView =
-      (UIView *)[_popups objectForKey:@(event->parent_id)];
-
-  if (parentWindowView) {
-    parentView = parentWindowView;
-  } else if (parentPopupView) {
-    parentView = parentPopupView;
-  }
-
-  if (!parentView) {
-    WWNLog("BRIDGE",
-           @"Warning: Popup parent %llu not found, using first window",
-           event->parent_id);
-    parentView = [_windows allValues].firstObject;
-  }
-
-  if (!parentView) {
-    WWNLog("BRIDGE", @"Error: No parent view available for popup %llu",
-           event->window_id);
-    return;
-  }
-
-  // Create popup view as subview of parent; clamp to containerView bounds (iOS
-  // kiosk)
-  CGRect containerBounds =
-      self.containerView ? self.containerView.bounds : parentView.bounds;
-  CGFloat x = (CGFloat)event->x;
-  CGFloat y = (CGFloat)event->y;
-  CGFloat w = (CGFloat)event->width;
-  CGFloat h = (CGFloat)event->height;
-  x = fmax(0, fmin(x, containerBounds.size.width - w));
-  y = fmax(0, fmin(y, containerBounds.size.height - h));
-  CGRect popupFrame = CGRectMake(x, y, w, h);
-  WWNCompositorView_ios *popupView =
-      [[WWNCompositorView_ios alloc] initWithFrame:popupFrame];
-  popupView.wwnWindowId = event->window_id;
-  popupView.clipsToBounds = YES;
-
-  // Add popup above all other content
-  // If parent is a WWNCompositorView_ios, add as subview of that parent
-  // This ensures proper relative positioning
-  [parentView addSubview:popupView];
-
-  [_popups setObject:popupView forKey:@(event->window_id)];
-  [_windows setObject:popupView forKey:@(event->window_id)];
-
-  WWNLog("BRIDGE",
-         @"iOS popup %llu added as subview of parent (frame: "
-         @"%.0f,%.0f %.0fx%.0f)",
-         event->window_id, popupFrame.origin.x, popupFrame.origin.y,
-         popupFrame.size.width, popupFrame.size.height);
-
-  // Send keyboard enter to popup so it can receive input
-  uint64_t windowId = event->window_id;
-  [self injectKeyboardEnterForWindow:windowId keys:@[]];
-}
-
-- (void)handlePopupRepositioned:(CWindowEvent *)event {
-  UIView *popupView = (UIView *)[_popups objectForKey:@(event->window_id)];
-  if (!popupView) {
-    WWNLog("BRIDGE", @"Warning: PopupRepositioned for unknown popup %llu",
-           event->window_id);
-    return;
-  }
-
-  // Clamp to container bounds (iOS kiosk)
-  CGRect containerBounds = self.containerView ? self.containerView.bounds
-                                              : popupView.superview.bounds;
-  CGFloat x = (CGFloat)event->x;
-  CGFloat y = (CGFloat)event->y;
-  CGFloat w = (CGFloat)event->width;
-  CGFloat h = (CGFloat)event->height;
-  x = fmax(0, fmin(x, containerBounds.size.width - w));
-  y = fmax(0, fmin(y, containerBounds.size.height - h));
-  CGRect newFrame = CGRectMake(x, y, w, h);
-  popupView.frame = newFrame;
-
-  WWNLog("BRIDGE", @"iOS popup %llu repositioned to (%.0f,%.0f %.0fx%.0f)",
-         event->window_id, newFrame.origin.x, newFrame.origin.y,
-         newFrame.size.width, newFrame.size.height);
-}
-
-- (void)handlePopupDismissed:(uint64_t)windowId {
-  WWNLog("BRIDGE", @"iOS popup dismissed: %llu", windowId);
-  UIView *popupView = (UIView *)[_popups objectForKey:@(windowId)];
-  if (popupView) {
-    [popupView removeFromSuperview];
-    [_popups removeObjectForKey:@(windowId)];
-    [_windows removeObjectForKey:@(windowId)];
-  }
-}
-#endif
 
 // MARK: - Buffer updates
 
@@ -2530,7 +2143,6 @@ extern void WWNWindowInfoFree(CWindowInfo *info);
 
 @end
 
-#if !TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -2578,5 +2190,4 @@ extern "C" {
   }
 #ifdef __cplusplus
 }
-#endif
 #endif

@@ -1,8 +1,6 @@
 #import "WWNPreferencesManager.h"
 #import "../../../../util/WWNLog.h"
-#if !TARGET_OS_IPHONE
 #import "WWNWaypipeRunner.h"
-#endif
 
 // Preferences keys
 NSString *const kWWNPrefsUniversalClipboard = @"UniversalClipboard";
@@ -88,26 +86,6 @@ NSString *const kWWNPrefsWestonEnabled = @"WestonEnabled";
 NSString *const kWWNPrefsWestonTerminalEnabled = @"WestonTerminalEnabled";
 
 static NSString *WWNPreferredSharedRuntimeDir(void) {
-#if TARGET_OS_IPHONE || TARGET_OS_SIMULATOR
-#if TARGET_OS_SIMULATOR
-  // Simulator: use a short path to stay within the 104-byte Unix socket
-  // sun_path limit.  NSTemporaryDirectory() maps to the host's
-  // CoreSimulator container path which can be 150+ chars.
-  NSString *candidate =
-      [NSString stringWithFormat:@"/tmp/wawona_sim_%u", (unsigned)getuid()];
-#else
-  // Device: NSTemporaryDirectory()/w — short enough on real hardware.
-  NSString *tmpDir = NSTemporaryDirectory();
-  NSString *candidate = [tmpDir stringByAppendingPathComponent:@"w"];
-#endif
-
-  // Ensure the directory exists
-  [[NSFileManager defaultManager] createDirectoryAtPath:candidate
-                            withIntermediateDirectories:YES
-                                             attributes:nil
-                                                  error:nil];
-  return candidate;
-#else
   NSURL *groupURL = [[NSFileManager defaultManager]
       containerURLForSecurityApplicationGroupIdentifier:
           @"group.com.aspauldingcode.Wawona"];
@@ -116,7 +94,6 @@ static NSString *WWNPreferredSharedRuntimeDir(void) {
   }
   NSString *tmpDir = NSTemporaryDirectory();
   return tmpDir.length > 0 ? tmpDir : @"/tmp";
-#endif
 }
 
 @implementation WWNPreferencesManager
@@ -144,7 +121,6 @@ static NSString *WWNPreferredSharedRuntimeDir(void) {
     // Set defaults if not already set
     [self setDefaultsIfNeeded];
 
-#if !TARGET_OS_IPHONE
     // Auto-launch weston-simple-shm if enabled
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     [defaults addObserver:self
@@ -162,7 +138,6 @@ static NSString *WWNPreferredSharedRuntimeDir(void) {
                   options:NSKeyValueObservingOptionNew |
                           NSKeyValueObservingOptionInitial
                   context:NULL];
-#endif
   }
   return self;
 }
@@ -171,7 +146,6 @@ static NSString *WWNPreferredSharedRuntimeDir(void) {
                       ofObject:(id)object
                         change:(NSDictionary<NSKeyValueChangeKey, id> *)change
                        context:(void *)context {
-#if !TARGET_OS_IPHONE
   if ([keyPath isEqualToString:kWWNPrefsWestonSimpleSHMEnabled]) {
     BOOL enabled = [change[NSKeyValueChangeNewKey] boolValue];
     WWNLog("PREFS", @"Weston Simple SHM preference changed: %d", enabled);
@@ -208,18 +182,6 @@ static NSString *WWNPreferredSharedRuntimeDir(void) {
                            change:change
                           context:context];
   }
-#else
-  if ([keyPath isEqualToString:kWWNPrefsWestonSimpleSHMEnabled] ||
-      [keyPath isEqualToString:kWWNPrefsWestonEnabled] ||
-      [keyPath isEqualToString:kWWNPrefsWestonTerminalEnabled]) {
-    return;
-  }
-
-  [super observeValueForKeyPath:keyPath
-                       ofObject:object
-                         change:change
-                        context:context];
-#endif
 }
 
 - (void)setDefaultsIfNeeded {
@@ -237,11 +199,7 @@ static NSString *WWNPreferredSharedRuntimeDir(void) {
     kWWNPrefsAutoScale : @YES,
     kWWNPrefsRespectSafeArea : @YES,
     kWWNPrefsHasSeenWelcome : @NO,
-#if TARGET_OS_IPHONE || TARGET_OS_SIMULATOR
-    kWWNPrefsRenderMacOSPointer : @NO,
-#else
     kWWNPrefsRenderMacOSPointer : @YES,
-#endif
     // Input
     kWWNPrefsTouchInputType : @"Multi-Touch",
     kWWNPrefsSwapCmdWithAlt : @YES,
@@ -260,11 +218,7 @@ static NSString *WWNPreferredSharedRuntimeDir(void) {
     // Advanced
     kWWNPrefsColorOperations : @NO,
     kWWNPrefsNestedCompositorsSupport : @YES,
-#if TARGET_OS_IPHONE || TARGET_OS_SIMULATOR
-    kWWNPrefsMultipleClients : @NO,
-#else
     kWWNPrefsMultipleClients : @YES,
-#endif
     kWWNPrefsEnableLauncher : @NO,
     kWWNPrefsWestonSimpleSHMEnabled : @NO,
     kWWNPrefsWestonEnabled : @NO,
@@ -442,17 +396,11 @@ static NSString *WWNPreferredSharedRuntimeDir(void) {
 
 // Window Decorations
 - (BOOL)forceServerSideDecorations {
-#if TARGET_OS_IPHONE
-  // iOS: CSD not supported; Force SSD is always on.
-  return YES;
-#else
   return [[NSUserDefaults standardUserDefaults]
       boolForKey:kWWNPrefsForceServerSideDecorations];
-#endif
 }
 
 - (void)setForceServerSideDecorations:(BOOL)enabled {
-#if !TARGET_OS_IPHONE
   [[NSUserDefaults standardUserDefaults]
       setBool:enabled
        forKey:kWWNPrefsForceServerSideDecorations];
@@ -461,7 +409,6 @@ static NSString *WWNPreferredSharedRuntimeDir(void) {
   [[NSNotificationCenter defaultCenter]
       postNotificationName:kWWNForceSSDChangedNotification
                     object:self];
-#endif
 }
 
 // Display
@@ -616,19 +563,6 @@ static NSString *WWNPreferredSharedRuntimeDir(void) {
 
 // Wayland Configuration
 - (NSString *)waylandSocketDir {
-#if TARGET_OS_IPHONE || TARGET_OS_SIMULATOR
-  NSString *preferred = WWNPreferredSharedRuntimeDir();
-  if (preferred.length > 0) {
-    NSString *stored = [[NSUserDefaults standardUserDefaults]
-        stringForKey:kWWNPrefsWaylandSocketDir];
-    if (![stored isEqualToString:preferred]) {
-      [[NSUserDefaults standardUserDefaults]
-          setObject:preferred
-             forKey:kWWNPrefsWaylandSocketDir];
-    }
-    return preferred;
-  }
-#endif
 
   NSString *dir = [[NSUserDefaults standardUserDefaults]
       stringForKey:kWWNPrefsWaylandSocketDir];
@@ -637,12 +571,7 @@ static NSString *WWNPreferredSharedRuntimeDir(void) {
     if (envDir) {
       dir = [NSString stringWithUTF8String:envDir];
     } else {
-#if TARGET_OS_IPHONE || TARGET_OS_SIMULATOR
-      NSString *tmpDir = NSTemporaryDirectory();
-      dir = [tmpDir stringByAppendingPathComponent:@"wayland-runtime"];
-#else
       dir = [NSString stringWithFormat:@"/tmp/wawona-%d", getuid()];
-#endif
     }
   }
   return dir;
@@ -832,34 +761,11 @@ static NSString *WWNPreferredSharedRuntimeDir(void) {
 
 // Waypipe Configuration Methods
 - (NSString *)waypipeDisplay {
-#if TARGET_OS_IPHONE || TARGET_OS_SIMULATOR
-  NSString *value = [[NSUserDefaults standardUserDefaults]
-      stringForKey:kWWNPrefsWaypipeDisplay];
-  if ([value isEqualToString:@"w0"] || [value isEqualToString:@"w-0"]) {
-    value = @"wayland-0";
-    [[NSUserDefaults standardUserDefaults] setObject:value
-                                              forKey:kWWNPrefsWaypipeDisplay];
-  }
-  return value.length > 0 ? value : @"wayland-0";
-#else
   NSInteger displayNumber = [self waylandDisplayNumber];
   return [NSString stringWithFormat:@"wayland-%ld", (long)displayNumber];
-#endif
 }
 
 - (void)setWaypipeDisplay:(NSString *)display {
-#if TARGET_OS_IPHONE || TARGET_OS_SIMULATOR
-  if ([display isEqualToString:@"w0"] || [display isEqualToString:@"w-0"]) {
-    display = @"wayland-0";
-  }
-  if (display.length > 0) {
-    [[NSUserDefaults standardUserDefaults] setObject:display
-                                              forKey:kWWNPrefsWaypipeDisplay];
-  } else {
-    [[NSUserDefaults standardUserDefaults]
-        removeObjectForKey:kWWNPrefsWaypipeDisplay];
-  }
-#else
   if (display && display.length > 0) {
     NSInteger number = 0;
     if ([display hasPrefix:@"wayland-"]) {
@@ -870,38 +776,15 @@ static NSString *WWNPreferredSharedRuntimeDir(void) {
     }
     [self setWaylandDisplayNumber:number];
   }
-#endif
 }
 
 - (NSString *)waypipeSocket {
-#if TARGET_OS_IPHONE || TARGET_OS_SIMULATOR
-  NSString *runtimeDir = WWNPreferredSharedRuntimeDir();
-  if (runtimeDir.length > 0) {
-    NSString *display = [self waypipeDisplay];
-    if (display.length == 0) {
-      display = @"wayland-0";
-    }
-    NSString *preferred = [runtimeDir stringByAppendingPathComponent:display];
-    NSString *stored = [[NSUserDefaults standardUserDefaults]
-        stringForKey:kWWNPrefsWaypipeSocket];
-    if (![stored isEqualToString:preferred]) {
-      [[NSUserDefaults standardUserDefaults] setObject:preferred
-                                                forKey:kWWNPrefsWaypipeSocket];
-    }
-    return preferred;
-  }
-#endif
 
   NSString *value = [[NSUserDefaults standardUserDefaults]
       stringForKey:kWWNPrefsWaypipeSocket];
   if (!value) {
-#if TARGET_OS_IPHONE || TARGET_OS_SIMULATOR
-    NSString *tmpDir = NSTemporaryDirectory();
-    value = [tmpDir stringByAppendingPathComponent:@"waypipe"];
-#else
     value =
         [NSString stringWithFormat:@"/tmp/wawona-waypipe-%d.sock", getuid()];
-#endif
   }
   return value;
 }
@@ -1157,20 +1040,13 @@ static NSString *WWNPreferredSharedRuntimeDir(void) {
 }
 
 - (BOOL)waypipeOneshot {
-#if TARGET_OS_IPHONE
-  // iOS App Store: SSH uses in-process libssh2 only; oneshot is always on.
-  return YES;
-#else
   return [[NSUserDefaults standardUserDefaults]
       boolForKey:kWWNPrefsWaypipeOneshot];
-#endif
 }
 
 - (void)setWaypipeOneshot:(BOOL)enabled {
-#if !TARGET_OS_IPHONE
   [[NSUserDefaults standardUserDefaults] setBool:enabled
                                           forKey:kWWNPrefsWaypipeOneshot];
-#endif
   // On iOS the getter always returns YES; no-op setter keeps UI from persisting
   // off.
 }

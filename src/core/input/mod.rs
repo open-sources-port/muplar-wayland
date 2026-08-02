@@ -1,15 +1,15 @@
-pub mod xkb;
 pub mod keyboard;
 pub mod pointer;
-pub mod touch;
 pub mod seat;
+pub mod touch;
+pub mod xkb;
 
 // Re-export key types for convenience
 pub use keyboard::KeyboardState;
 pub use pointer::PointerState;
-pub use touch::TouchState;
 pub use seat::Seat;
-pub use xkb::{XkbContext, XkbState, KeyResult};
+pub use touch::TouchState;
+pub use xkb::{KeyResult, XkbContext, XkbState};
 
 /// Button/Key state
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

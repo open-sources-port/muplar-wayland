@@ -5,18 +5,18 @@
 // Protocol modules for categorization
 pub mod layer_shell;
 pub use layer_shell::LayerSurfaceData;
-pub mod output_management;
-pub mod output_power_management;
-pub mod foreign_toplevel_management;
-pub mod screencopy;
-pub mod gamma_control;
 pub mod data_control;
 pub mod export_dmabuf;
-pub mod virtual_pointer;
+pub mod foreign_toplevel_management;
+pub mod gamma_control;
+pub mod output_management;
+pub mod output_power_management;
+pub mod screencopy;
 pub mod virtual_keyboard;
+pub mod virtual_pointer;
 
-use wayland_server::DisplayHandle;
 use crate::core::state::CompositorState;
+use wayland_server::DisplayHandle;
 
 /// Register wlroots-compatible protocols
 pub fn register(_state: &mut CompositorState, dh: &DisplayHandle) {
@@ -28,10 +28,13 @@ pub fn register(_state: &mut CompositorState, dh: &DisplayHandle) {
     gamma_control::register_gamma_control(dh);
     data_control::register_data_control(dh);
     export_dmabuf::register_export_dmabuf(dh);
-    
+
     // Virtual devices
     virtual_pointer::register_virtual_pointer(dh);
     virtual_keyboard::register_virtual_keyboard(dh);
 
-    crate::wlog!(crate::util::logging::COMPOSITOR, "Registered all wlroots-compatible protocols");
+    crate::wlog!(
+        crate::util::logging::COMPOSITOR,
+        "Registered all wlroots-compatible protocols"
+    );
 }

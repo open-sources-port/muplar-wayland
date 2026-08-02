@@ -1,6 +1,6 @@
-use wayland_server::Resource;
 use wayland_server::protocol::wl_pointer::{self, WlPointer};
 use wayland_server::protocol::wl_surface::WlSurface;
+use wayland_server::Resource;
 
 /// Pointer state for a seat, managing position, focus, buttons, and cursor.
 #[derive(Debug, Clone, Default)]
@@ -69,13 +69,7 @@ impl PointerState {
     }
 
     /// Send enter event to pointer resources matching the surface's client
-    pub fn broadcast_enter(
-        &self,
-        serial: u32,
-        surface: &WlSurface,
-        x: f64,
-        y: f64,
-    ) {
+    pub fn broadcast_enter(&self, serial: u32, surface: &WlSurface, x: f64, y: f64) {
         let Some(client) = surface.client() else {
             return;
         };
@@ -155,10 +149,18 @@ impl PointerState {
         focused_client: Option<&wayland_server::Client>,
     ) {
         let wl_source = match source {
-            crate::ffi::types::AxisSource::Wheel => wayland_server::protocol::wl_pointer::AxisSource::Wheel,
-            crate::ffi::types::AxisSource::Finger => wayland_server::protocol::wl_pointer::AxisSource::Finger,
-            crate::ffi::types::AxisSource::Continuous => wayland_server::protocol::wl_pointer::AxisSource::Continuous,
-            crate::ffi::types::AxisSource::WheelTilt => wayland_server::protocol::wl_pointer::AxisSource::WheelTilt,
+            crate::ffi::types::AxisSource::Wheel => {
+                wayland_server::protocol::wl_pointer::AxisSource::Wheel
+            }
+            crate::ffi::types::AxisSource::Finger => {
+                wayland_server::protocol::wl_pointer::AxisSource::Finger
+            }
+            crate::ffi::types::AxisSource::Continuous => {
+                wayland_server::protocol::wl_pointer::AxisSource::Continuous
+            }
+            crate::ffi::types::AxisSource::WheelTilt => {
+                wayland_server::protocol::wl_pointer::AxisSource::WheelTilt
+            }
         };
         if let Some(focused) = focused_client {
             for ptr in &self.resources {

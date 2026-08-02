@@ -6,13 +6,11 @@
 //! Commit strings and preedit are forwarded from the platform IME integration.
 
 use std::collections::HashMap;
-use wayland_server::{
-    Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, New, Resource,
-};
 use wayland_protocols::wp::text_input::zv3::server::{
     zwp_text_input_manager_v3::{self, ZwpTextInputManagerV3},
     zwp_text_input_v3::{self, ZwpTextInputV3},
 };
+use wayland_server::{Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, New, Resource};
 
 use crate::core::state::CompositorState;
 
@@ -89,7 +87,9 @@ impl TextInputState {
         for (_id, instance) in &mut self.instances {
             if instance.enabled && instance.resource.is_alive() {
                 instance.serial = instance.serial.wrapping_add(1);
-                instance.resource.preedit_string(Some(text.to_string()), cursor_begin, cursor_end);
+                instance
+                    .resource
+                    .preedit_string(Some(text.to_string()), cursor_begin, cursor_end);
                 instance.resource.done(instance.serial);
             }
         }
@@ -100,7 +100,9 @@ impl TextInputState {
         for (_id, instance) in &mut self.instances {
             if instance.enabled && instance.resource.is_alive() {
                 instance.serial = instance.serial.wrapping_add(1);
-                instance.resource.delete_surrounding_text(before_length, after_length);
+                instance
+                    .resource
+                    .delete_surrounding_text(before_length, after_length);
                 instance.resource.done(instance.serial);
             }
         }
@@ -141,17 +143,20 @@ impl Dispatch<ZwpTextInputManagerV3, ()> for CompositorState {
                 let text_input = data_init.init(id, seat_id);
                 let ti_id = text_input.id().protocol_id();
 
-                state.ext.text_input.instances.insert(ti_id, TextInputInstance {
-                    resource: text_input,
-                    seat_id,
-                    enabled: false,
-                    surrounding_text: String::new(),
-                    surrounding_cursor: 0,
-                    surrounding_anchor: 0,
-                    content_type: ContentType::default(),
-                    cursor_rect: (0, 0, 0, 0),
-                    serial: 0,
-                });
+                state.ext.text_input.instances.insert(
+                    ti_id,
+                    TextInputInstance {
+                        resource: text_input,
+                        seat_id,
+                        enabled: false,
+                        surrounding_text: String::new(),
+                        surrounding_cursor: 0,
+                        surrounding_anchor: 0,
+                        content_type: ContentType::default(),
+                        cursor_rect: (0, 0, 0, 0),
+                        serial: 0,
+                    },
+                );
 
                 tracing::debug!("Created text input {} for seat {}", ti_id, seat_id);
             }
@@ -202,7 +207,11 @@ impl Dispatch<ZwpTextInputV3, u32> for CompositorState {
                     state.ext.input_method.deactivate();
                 }
             }
-            zwp_text_input_v3::Request::SetSurroundingText { text, cursor, anchor } => {
+            zwp_text_input_v3::Request::SetSurroundingText {
+                text,
+                cursor,
+                anchor,
+            } => {
                 if let Some(instance) = state.ext.text_input.instances.get_mut(&ti_id) {
                     instance.surrounding_text = text;
                     instance.surrounding_cursor = cursor;
@@ -218,7 +227,12 @@ impl Dispatch<ZwpTextInputV3, u32> for CompositorState {
                     instance.content_type.purpose = purpose.into();
                 }
             }
-            zwp_text_input_v3::Request::SetCursorRectangle { x, y, width, height } => {
+            zwp_text_input_v3::Request::SetCursorRectangle {
+                x,
+                y,
+                width,
+                height,
+            } => {
                 if let Some(instance) = state.ext.text_input.instances.get_mut(&ti_id) {
                     instance.cursor_rect = (x, y, width, height);
                 }
@@ -226,17 +240,22 @@ impl Dispatch<ZwpTextInputV3, u32> for CompositorState {
             zwp_text_input_v3::Request::Commit => {
                 // Extract the values we need before releasing the borrow
                 // on `instances`, so we can also borrow `input_method`.
-                let _im_data = state.ext.text_input.instances.get_mut(&ti_id).map(|instance| {
-                    instance.serial = instance.serial.wrapping_add(1);
-                    tracing::debug!("Text input {} commit (serial {})", ti_id, instance.serial);
-                    (
-                        instance.surrounding_text.clone(),
-                        instance.surrounding_cursor as u32,
-                        instance.surrounding_anchor as u32,
-                        instance.content_type.hint,
-                        instance.content_type.purpose,
-                    )
-                });
+                let _im_data = state
+                    .ext
+                    .text_input
+                    .instances
+                    .get_mut(&ti_id)
+                    .map(|instance| {
+                        instance.serial = instance.serial.wrapping_add(1);
+                        tracing::debug!("Text input {} commit (serial {})", ti_id, instance.serial);
+                        (
+                            instance.surrounding_text.clone(),
+                            instance.surrounding_cursor as u32,
+                            instance.surrounding_anchor as u32,
+                            instance.content_type.hint,
+                            instance.content_type.purpose,
+                        )
+                    });
 
                 // Forward double-buffered state to the input method engine.
                 #[cfg(feature = "desktop-protocols")]

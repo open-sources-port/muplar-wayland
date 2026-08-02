@@ -1,5 +1,4 @@
 #include <TargetConditionals.h>
-#if !TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 EGLDisplay eglGetPlatformDisplayEXT(EGLenum platform, void *native_display,
@@ -25,4 +24,3 @@ EGLBoolean eglReleaseTexImage(EGLDisplay dpy, EGLSurface surface,
                               EGLint buffer) {
   return EGL_FALSE;
 }
-#endif

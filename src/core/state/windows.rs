@@ -14,43 +14,47 @@ impl CompositorState {
         let surface_id = window.surface_id;
         self.register_window(surface_id, window)
     }
-    
+
     /// Remove a window (Delegating to destroy_window)
     pub fn remove_window(&mut self, window_id: u32) {
         self.destroy_window(window_id);
     }
-    
+
     /// Get window for surface
     pub fn get_window_for_surface(&self, surface_id: u32) -> Option<Arc<RwLock<Window>>> {
         self.get_window_by_surface(surface_id)
     }
-    
+
     /// Re-configure a window to ensure it updates its decoration mode.
     pub fn reconfigure_window_decorations(&mut self, window_id: u32) {
         let mut surface_res = None;
         let mut toplevel_res = None;
         let mut internal_surface_id = 0;
         let mut current_states = Vec::new();
-        
+
         for ((client_id, _), tl) in self.xdg.toplevels.iter() {
             if tl.window_id == window_id {
                 internal_surface_id = tl.surface_id;
                 toplevel_res = tl.resource.clone();
-                
+
                 if tl.activated {
                     use crate::core::wayland::protocol::server::xdg::shell::server::xdg_toplevel::State;
                     current_states.push(State::Activated);
                 }
-                
+
                 if internal_surface_id != 0 {
-                    if let Some(surf) = self.xdg.surfaces.get(&(client_id.clone(), internal_surface_id)) {
+                    if let Some(surf) = self
+                        .xdg
+                        .surfaces
+                        .get(&(client_id.clone(), internal_surface_id))
+                    {
                         surface_res = surf.resource.clone();
                     }
                 }
                 break;
             }
         }
-        
+
         if let Some(tl) = toplevel_res {
             let (width, height) = if let Some(window) = self.windows.get(&window_id) {
                 let window = window.read().unwrap();
@@ -58,14 +62,14 @@ impl CompositorState {
             } else {
                 (0, 0)
             };
-            
+
             let mut states_bytes = Vec::new();
             for state in current_states {
                 let val = state as u32;
                 states_bytes.extend_from_slice(&val.to_ne_bytes());
             }
             tl.configure(width, height, states_bytes);
-            
+
             if let Some(surf) = surface_res {
                 let serial = self.next_serial();
                 surf.configure(serial);
@@ -77,26 +81,31 @@ impl CompositorState {
     /// Register a new window for a surface
     pub fn register_window(&mut self, surface_id: u32, window: Window) -> u32 {
         let window_id = window.id;
-        self.windows.insert(window_id, Arc::new(RwLock::new(window)));
+        self.windows
+            .insert(window_id, Arc::new(RwLock::new(window)));
         self.surface_to_window.insert(surface_id, window_id);
         self.window_tree.insert(window_id);
-        
+
         self.focus.set_keyboard_focus(Some(window_id));
         if let Some(old_focus_wid) = self.focus.pointer_focus {
             if let Some(old_window) = self.windows.get(&old_focus_wid) {
                 let (sid, cid) = {
                     let w = old_window.read().unwrap();
                     let sid = w.surface_id;
-                    let cid = self.get_surface(sid).and_then(|s| s.read().unwrap().client_id.clone());
+                    let cid = self
+                        .get_surface(sid)
+                        .and_then(|s| s.read().unwrap().client_id.clone());
                     (sid, cid)
                 };
                 if let Some(cid) = cid {
-                    self.ext.pointer_constraints.deactivate_constraints(cid, sid);
+                    self.ext
+                        .pointer_constraints
+                        .deactivate_constraints(cid, sid);
                 }
             }
         }
         self.focus.set_pointer_focus(Some(window_id));
-        
+
         // Deliver any deferred keyboard focus that arrived before this surface
         // was committed (becomeKeyWindow fires before the client maps its first surface).
         if let Some(pending_wid) = self.pending_keyboard_focus_window.take() {
@@ -105,21 +114,29 @@ impl CompositorState {
                 if let Some(surface) = self.surfaces.get(&surface_id).cloned() {
                     let surface = surface.read().unwrap();
                     if let Some(res) = &surface.resource {
-                        crate::wlog!(crate::util::logging::COMPOSITOR,
-                            "Delivering deferred keyboard enter to window {} surface {}", window_id, surface_id);
+                        crate::wlog!(
+                            crate::util::logging::COMPOSITOR,
+                            "Delivering deferred keyboard enter to window {} surface {}",
+                            window_id,
+                            surface_id
+                        );
                         self.seat.keyboard.focus = Some(surface_id);
                         self.seat.broadcast_keyboard_enter(serial, res, &[]);
                     }
                 }
             }
         }
-        
-        let client_id = self.get_surface(surface_id).and_then(|s| s.read().unwrap().client_id.clone());
+
+        let client_id = self
+            .get_surface(surface_id)
+            .and_then(|s| s.read().unwrap().client_id.clone());
         if let Some(cid) = client_id {
-            self.ext.pointer_constraints.activate_constraints(cid, surface_id);
+            self.ext
+                .pointer_constraints
+                .activate_constraints(cid, surface_id);
         }
         self.window_tree.bring_to_front(window_id);
-        
+
         tracing::info!("Registered window {} for surface {}", window_id, surface_id);
         window_id
     }
@@ -128,7 +145,7 @@ impl CompositorState {
     pub fn get_window(&self, window_id: u32) -> Option<Arc<RwLock<Window>>> {
         self.windows.get(&window_id).cloned()
     }
-    
+
     /// Get a window by Surface ID
     pub fn get_window_by_surface(&self, surface_id: u32) -> Option<Arc<RwLock<Window>>> {
         let wid = self.surface_to_window.get(&surface_id)?;
@@ -141,7 +158,7 @@ impl CompositorState {
             let surface_id = window.read().unwrap().surface_id;
             self.surface_to_window.remove(&surface_id);
             self.window_tree.remove(window_id);
-            
+
             if self.focus.has_keyboard_focus(window_id) {
                 let next = self.focus.focus_history.first().copied();
                 self.focus.set_keyboard_focus(next);
@@ -151,169 +168,212 @@ impl CompositorState {
                     let (sid, cid) = {
                         let w = window.read().unwrap(); // window is already removed from map but we have Arc
                         let sid = w.surface_id;
-                        let cid = self.get_surface(sid).and_then(|s| s.read().unwrap().client_id.clone());
+                        let cid = self
+                            .get_surface(sid)
+                            .and_then(|s| s.read().unwrap().client_id.clone());
                         (sid, cid)
                     };
                     if let Some(cid) = cid {
-                        self.ext.pointer_constraints.deactivate_constraints(cid, sid);
+                        self.ext
+                            .pointer_constraints
+                            .deactivate_constraints(cid, sid);
                     }
                     self.focus.set_pointer_focus(None);
                 }
             }
-            
+
             tracing::info!("Destroyed window {}", window_id);
-            
-            self.pending_compositor_events.push(crate::core::compositor::CompositorEvent::WindowDestroyed {
-                window_id,
-            });
+
+            self.pending_compositor_events
+                .push(crate::core::compositor::CompositorEvent::WindowDestroyed { window_id });
         }
     }
 
     // =========================================================================
     // Clipboard & Drag-and-Drop
     // =========================================================================
-    
+
     /// Set the current clipboard source
-    pub fn set_clipboard_source(&mut self, dh: &wayland_server::DisplayHandle, source: Option<SelectionSource>) {
+    pub fn set_clipboard_source(
+        &mut self,
+        dh: &wayland_server::DisplayHandle,
+        source: Option<SelectionSource>,
+    ) {
         tracing::debug!("Clipboard source set to: {:?}", source);
         self.seat.current_selection = source;
-        
-        let devices: Vec<wayland_server::protocol::wl_data_device::WlDataDevice> = self.data.devices.values()
+
+        let devices: Vec<wayland_server::protocol::wl_data_device::WlDataDevice> = self
+            .data
+            .devices
+            .values()
             .map(|d| d.resource.clone())
             .collect();
-            
+
         for device in devices {
-             if let Some(client) = device.client() {
-                 if let Some(src) = &self.seat.current_selection {
-                     let version = device.version();
-                     let offer = client.create_resource::<wayland_server::protocol::wl_data_offer::WlDataOffer, (), CompositorState>(
+            if let Some(client) = device.client() {
+                if let Some(src) = &self.seat.current_selection {
+                    let version = device.version();
+                    let offer = client.create_resource::<wayland_server::protocol::wl_data_offer::WlDataOffer, (), CompositorState>(
                          dh,
                          version,
                          ()
                      ).unwrap();
-                     
-                     device.data_offer(&offer);
-                     
-                     let (source_id, source_dnd_actions) = match src {
-                         SelectionSource::Wayland(s) => {
-                             let id = s.id().protocol_id();
-                             let actions = self.data.sources.get(&id)
-                                 .map(|d| d.dnd_actions).unwrap_or(DndAction::empty());
-                             if let Some(data) = self.data.sources.get(&id) {
-                                 for mime in &data.mime_types {
-                                     offer.offer(mime.clone());
-                                 }
-                                 
-                                 // Async clipboard sync to host
-                                 let text_mime = data.mime_types.iter()
-                                     .find(|m| m.as_str() == "text/plain;charset=utf-8")
-                                     .or_else(|| data.mime_types.iter().find(|m| m.as_str() == "text/plain"))
-                                     .or_else(|| data.mime_types.iter().find(|m| m.as_str() == "UTF8_STRING"))
-                                     .or_else(|| data.mime_types.iter().find(|m| m.as_str() == "STRING"))
-                                     .cloned();
-                                 if let Some(text_mime) = text_mime {
-                                     let mut fds = [0; 2];
-                                     unsafe {
-                                         if libc::pipe(fds.as_mut_ptr()) == 0 {
-                                             use std::os::unix::io::FromRawFd;
-                                             use std::os::unix::io::AsFd;
-                                             let read_fd = std::os::unix::io::OwnedFd::from_raw_fd(fds[0]);
-                                             let write_fd = std::os::unix::io::OwnedFd::from_raw_fd(fds[1]);
-                                             
-                                             s.send(text_mime, write_fd.as_fd());
-                                             drop(write_fd); // Must close write end so reader receives EOF
-                                             
-                                             let clipboard_mutex = self.last_copied_text.clone();
-                                             std::thread::spawn(move || {
-                                                 use std::io::Read;
-                                                 let mut file = std::fs::File::from(read_fd);
-                                                 let mut text = String::new();
-                                                 if file.read_to_string(&mut text).is_ok() {
-                                                     if !text.is_empty() {
-                                                         let mut guard = clipboard_mutex.lock().unwrap();
-                                                         *guard = Some(text);
-                                                     }
-                                                 }
-                                             });
-                                         }
-                                     }
-                                 }
-                             }
-                             (Some(id), actions)
-                         }
-                         SelectionSource::Wlr(s) => {
-                             let id = s.id().protocol_id();
-                             let actions = self.wlr.data_control.sources.get(&id)
-                                 .map(|d| d.dnd_actions)
-                                 .unwrap_or(DndAction::empty());
-                             if let Some(data) = self.wlr.data_control.sources.get(&id) {
-                                 for mime in &data.mime_types {
-                                     offer.offer(mime.clone());
-                                 }
-                                 
-                                 // Async clipboard sync to host
-                                 let text_mime = data.mime_types.iter()
-                                     .find(|m| m.as_str() == "text/plain;charset=utf-8")
-                                     .or_else(|| data.mime_types.iter().find(|m| m.as_str() == "text/plain"))
-                                     .or_else(|| data.mime_types.iter().find(|m| m.as_str() == "UTF8_STRING"))
-                                     .or_else(|| data.mime_types.iter().find(|m| m.as_str() == "STRING"))
-                                     .cloned();
-                                 if let Some(text_mime) = text_mime {
-                                     let mut fds = [0; 2];
-                                     unsafe {
-                                         if libc::pipe(fds.as_mut_ptr()) == 0 {
-                                             use std::os::unix::io::FromRawFd;
-                                             use std::os::unix::io::AsFd;
-                                             let read_fd = std::os::unix::io::OwnedFd::from_raw_fd(fds[0]);
-                                             let write_fd = std::os::unix::io::OwnedFd::from_raw_fd(fds[1]);
-                                             
-                                             s.send(text_mime, write_fd.as_fd());
-                                             drop(write_fd);
-                                             
-                                             let clipboard_mutex = self.last_copied_text.clone();
-                                             std::thread::spawn(move || {
-                                                 use std::io::Read;
-                                                 let mut file = std::fs::File::from(read_fd);
-                                                 let mut text = String::new();
-                                                 if file.read_to_string(&mut text).is_ok() {
-                                                     if !text.is_empty() {
-                                                         let mut guard = clipboard_mutex.lock().unwrap();
-                                                         *guard = Some(text);
-                                                     }
-                                                 }
-                                             });
-                                         }
-                                     }
-                                 }
-                             }
-                             (Some(id), actions)
-                         }
-                         SelectionSource::Host(_text) => {
-                             offer.offer("text/plain;charset=utf-8".to_string());
-                             offer.offer("text/plain".to_string());
-                             offer.offer("UTF8_STRING".to_string());
-                             offer.offer("STRING".to_string());
-                             (None, DndAction::empty())
-                         }
-                     };
-                     if offer.version() >= 3 {
-                         offer.source_actions(source_dnd_actions);
-                     }
-                     let offer_id = offer.id().protocol_id();
-                     self.data.offers.insert(offer_id, crate::core::wayland::ext::data_device::DataOfferData {
-                        resource: Some(offer.clone()),
-                        device_id: device.id().protocol_id(),
-                         source_id,
-                         mime_types: Vec::new(),
-                         source_dnd_actions,
-                         preferred_action: None,
-                     });
-                     
-                     device.selection(Some(&offer));
-                 } else {
-                     device.selection(None);
-                 }
-             }
+
+                    device.data_offer(&offer);
+
+                    let (source_id, source_dnd_actions) = match src {
+                        SelectionSource::Wayland(s) => {
+                            let id = s.id().protocol_id();
+                            let actions = self
+                                .data
+                                .sources
+                                .get(&id)
+                                .map(|d| d.dnd_actions)
+                                .unwrap_or(DndAction::empty());
+                            if let Some(data) = self.data.sources.get(&id) {
+                                for mime in &data.mime_types {
+                                    offer.offer(mime.clone());
+                                }
+
+                                // Async clipboard sync to host
+                                let text_mime = data
+                                    .mime_types
+                                    .iter()
+                                    .find(|m| m.as_str() == "text/plain;charset=utf-8")
+                                    .or_else(|| {
+                                        data.mime_types.iter().find(|m| m.as_str() == "text/plain")
+                                    })
+                                    .or_else(|| {
+                                        data.mime_types.iter().find(|m| m.as_str() == "UTF8_STRING")
+                                    })
+                                    .or_else(|| {
+                                        data.mime_types.iter().find(|m| m.as_str() == "STRING")
+                                    })
+                                    .cloned();
+                                if let Some(text_mime) = text_mime {
+                                    let mut fds = [0; 2];
+                                    unsafe {
+                                        if libc::pipe(fds.as_mut_ptr()) == 0 {
+                                            use std::os::unix::io::AsFd;
+                                            use std::os::unix::io::FromRawFd;
+                                            let read_fd =
+                                                std::os::unix::io::OwnedFd::from_raw_fd(fds[0]);
+                                            let write_fd =
+                                                std::os::unix::io::OwnedFd::from_raw_fd(fds[1]);
+
+                                            s.send(text_mime, write_fd.as_fd());
+                                            drop(write_fd); // Must close write end so reader receives EOF
+
+                                            let clipboard_mutex = self.last_copied_text.clone();
+                                            std::thread::spawn(move || {
+                                                use std::io::Read;
+                                                let mut file = std::fs::File::from(read_fd);
+                                                let mut text = String::new();
+                                                if file.read_to_string(&mut text).is_ok() {
+                                                    if !text.is_empty() {
+                                                        let mut guard =
+                                                            clipboard_mutex.lock().unwrap();
+                                                        *guard = Some(text);
+                                                    }
+                                                }
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                            (Some(id), actions)
+                        }
+                        SelectionSource::Wlr(s) => {
+                            let id = s.id().protocol_id();
+                            let actions = self
+                                .wlr
+                                .data_control
+                                .sources
+                                .get(&id)
+                                .map(|d| d.dnd_actions)
+                                .unwrap_or(DndAction::empty());
+                            if let Some(data) = self.wlr.data_control.sources.get(&id) {
+                                for mime in &data.mime_types {
+                                    offer.offer(mime.clone());
+                                }
+
+                                // Async clipboard sync to host
+                                let text_mime = data
+                                    .mime_types
+                                    .iter()
+                                    .find(|m| m.as_str() == "text/plain;charset=utf-8")
+                                    .or_else(|| {
+                                        data.mime_types.iter().find(|m| m.as_str() == "text/plain")
+                                    })
+                                    .or_else(|| {
+                                        data.mime_types.iter().find(|m| m.as_str() == "UTF8_STRING")
+                                    })
+                                    .or_else(|| {
+                                        data.mime_types.iter().find(|m| m.as_str() == "STRING")
+                                    })
+                                    .cloned();
+                                if let Some(text_mime) = text_mime {
+                                    let mut fds = [0; 2];
+                                    unsafe {
+                                        if libc::pipe(fds.as_mut_ptr()) == 0 {
+                                            use std::os::unix::io::AsFd;
+                                            use std::os::unix::io::FromRawFd;
+                                            let read_fd =
+                                                std::os::unix::io::OwnedFd::from_raw_fd(fds[0]);
+                                            let write_fd =
+                                                std::os::unix::io::OwnedFd::from_raw_fd(fds[1]);
+
+                                            s.send(text_mime, write_fd.as_fd());
+                                            drop(write_fd);
+
+                                            let clipboard_mutex = self.last_copied_text.clone();
+                                            std::thread::spawn(move || {
+                                                use std::io::Read;
+                                                let mut file = std::fs::File::from(read_fd);
+                                                let mut text = String::new();
+                                                if file.read_to_string(&mut text).is_ok() {
+                                                    if !text.is_empty() {
+                                                        let mut guard =
+                                                            clipboard_mutex.lock().unwrap();
+                                                        *guard = Some(text);
+                                                    }
+                                                }
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                            (Some(id), actions)
+                        }
+                        SelectionSource::Host(_text) => {
+                            offer.offer("text/plain;charset=utf-8".to_string());
+                            offer.offer("text/plain".to_string());
+                            offer.offer("UTF8_STRING".to_string());
+                            offer.offer("STRING".to_string());
+                            (None, DndAction::empty())
+                        }
+                    };
+                    if offer.version() >= 3 {
+                        offer.source_actions(source_dnd_actions);
+                    }
+                    let offer_id = offer.id().protocol_id();
+                    self.data.offers.insert(
+                        offer_id,
+                        crate::core::wayland::ext::data_device::DataOfferData {
+                            resource: Some(offer.clone()),
+                            device_id: device.id().protocol_id(),
+                            source_id,
+                            mime_types: Vec::new(),
+                            source_dnd_actions,
+                            preferred_action: None,
+                        },
+                    );
+
+                    device.selection(Some(&offer));
+                } else {
+                    device.selection(None);
+                }
+            }
         }
     }
 
@@ -330,11 +390,12 @@ impl CompositorState {
 
         let mut offer_by_device = std::collections::HashMap::new();
         if let Some(source_id) = source_id {
-            let (mime_types, source_dnd_actions) = if let Some(source_data) = self.data.sources.get(&source_id) {
-                (source_data.mime_types.clone(), source_data.dnd_actions)
-            } else {
-                (Vec::new(), DndAction::empty())
-            };
+            let (mime_types, source_dnd_actions) =
+                if let Some(source_data) = self.data.sources.get(&source_id) {
+                    (source_data.mime_types.clone(), source_data.dnd_actions)
+                } else {
+                    (Vec::new(), DndAction::empty())
+                };
 
             for device_data in self.data.devices.values() {
                 if let Some(client) = device_data.resource.client() {
@@ -381,7 +442,10 @@ impl CompositorState {
 
         tracing::info!(
             "Drag started: source={:?}, origin={}, icon={:?}, serial={}",
-            source_id, origin_surface_id, icon_surface_id, serial
+            source_id,
+            origin_surface_id,
+            icon_surface_id,
+            serial
         );
     }
 
@@ -463,15 +527,25 @@ impl CompositorState {
     // =========================================================================
 
     /// Add a virtual pointer
-    pub fn add_virtual_pointer(&mut self, client_id: ClientId, resource_id: u32, pointer: VirtualPointerState) {
-        self.wlr.virtual_pointers.insert((client_id, resource_id), pointer);
+    pub fn add_virtual_pointer(
+        &mut self,
+        client_id: ClientId,
+        resource_id: u32,
+        pointer: VirtualPointerState,
+    ) {
+        self.wlr
+            .virtual_pointers
+            .insert((client_id, resource_id), pointer);
         tracing::debug!("Added virtual pointer device for resource {}", resource_id);
     }
 
     /// Remove a virtual pointer
     pub fn remove_virtual_pointer(&mut self, client_id: ClientId, resource_id: u32) {
         self.wlr.virtual_pointers.remove(&(client_id, resource_id));
-        tracing::debug!("Removed virtual pointer device for resource {}", resource_id);
+        tracing::debug!(
+            "Removed virtual pointer device for resource {}",
+            resource_id
+        );
     }
 
     // =========================================================================
@@ -479,21 +553,31 @@ impl CompositorState {
     // =========================================================================
 
     /// Add a virtual keyboard
-    pub fn add_virtual_keyboard(&mut self, client_id: ClientId, resource_id: u32, keyboard: VirtualKeyboardState) {
-        self.wlr.virtual_keyboards.insert((client_id, resource_id), keyboard);
+    pub fn add_virtual_keyboard(
+        &mut self,
+        client_id: ClientId,
+        resource_id: u32,
+        keyboard: VirtualKeyboardState,
+    ) {
+        self.wlr
+            .virtual_keyboards
+            .insert((client_id, resource_id), keyboard);
         tracing::debug!("Added virtual keyboard device for resource {}", resource_id);
     }
 
     /// Remove a virtual keyboard
     pub fn remove_virtual_keyboard(&mut self, client_id: ClientId, resource_id: u32) {
         self.wlr.virtual_keyboards.remove(&(client_id, resource_id));
-        tracing::debug!("Removed virtual keyboard device for resource {}", resource_id);
+        tracing::debug!(
+            "Removed virtual keyboard device for resource {}",
+            resource_id
+        );
     }
 
     // =========================================================================
     // Presentation Time
     // =========================================================================
-    
+
     /// Get next presentation sequence number
     pub fn next_presentation_seq(&mut self) -> u64 {
         let seq = self.ext.presentation.next_seq;
@@ -525,22 +609,40 @@ impl CompositorState {
         {
             let output = &mut self.outputs[idx];
             if let Some(w) = width {
-                if output.width != w { output.width = w; changed = true; }
+                if output.width != w {
+                    output.width = w;
+                    changed = true;
+                }
             }
             if let Some(h) = height {
-                if output.height != h { output.height = h; changed = true; }
+                if output.height != h {
+                    output.height = h;
+                    changed = true;
+                }
             }
             if let Some(r) = refresh {
-                if output.refresh != r { output.refresh = r; changed = true; }
+                if output.refresh != r {
+                    output.refresh = r;
+                    changed = true;
+                }
             }
             if let Some(s) = scale {
-                if (output.scale - s).abs() > 0.001 { output.scale = s; changed = true; }
+                if (output.scale - s).abs() > 0.001 {
+                    output.scale = s;
+                    changed = true;
+                }
             }
             if let Some(px) = x {
-                if output.x != px { output.x = px; changed = true; }
+                if output.x != px {
+                    output.x = px;
+                    changed = true;
+                }
             }
             if let Some(py) = y {
-                if output.y != py { output.y = py; changed = true; }
+                if output.y != py {
+                    output.y = py;
+                    changed = true;
+                }
             }
 
             if changed {
@@ -550,11 +652,18 @@ impl CompositorState {
                     mode.refresh = output.refresh;
                 }
                 output.usable_area = crate::util::geometry::Rect::new(
-                    output.x, output.y, output.width, output.height
+                    output.x,
+                    output.y,
+                    output.width,
+                    output.height,
                 );
                 tracing::info!(
                     "Output {} updated: {}x{} @ {}mHz, scale {}",
-                    output_id, output.width, output.height, output.refresh, output.scale
+                    output_id,
+                    output.width,
+                    output.height,
+                    output.refresh,
+                    output.scale
                 );
             }
         }
@@ -565,37 +674,48 @@ impl CompositorState {
 
         true
     }
-    
+
     // =========================================================================
     // Idle Inhibition
     // =========================================================================
-    
+
     // =========================================================================
     // Layer Surface Management
     // =========================================================================
-    
+
     /// Add a layer surface
     pub fn add_layer_surface(&mut self, client_id: ClientId, surface: LayerSurface) -> u32 {
         let id = surface.surface_id;
-        self.wlr.layer_surfaces.insert((client_id.clone(), id), Arc::new(RwLock::new(surface)));
+        self.wlr
+            .layer_surfaces
+            .insert((client_id.clone(), id), Arc::new(RwLock::new(surface)));
         tracing::debug!("Added layer surface {}", id);
         id
     }
-    
+
     /// Remove a layer surface
     pub fn remove_layer_surface(&mut self, client_id: ClientId, surface_id: u32) {
         self.wlr.layer_surfaces.remove(&(client_id, surface_id));
         tracing::debug!("Removed layer surface {}", surface_id);
     }
-    
+
     /// Get a layer surface
-    pub fn get_layer_surface(&self, client_id: ClientId, surface_id: u32) -> Option<Arc<RwLock<LayerSurface>>> {
-        self.wlr.layer_surfaces.get(&(client_id, surface_id)).cloned()
+    pub fn get_layer_surface(
+        &self,
+        client_id: ClientId,
+        surface_id: u32,
+    ) -> Option<Arc<RwLock<LayerSurface>>> {
+        self.wlr
+            .layer_surfaces
+            .get(&(client_id, surface_id))
+            .cloned()
     }
-    
+
     /// Get all layer surfaces for an output
     pub fn layer_surfaces_for_output(&self, output_id: u32) -> Vec<Arc<RwLock<LayerSurface>>> {
-        self.wlr.layer_surfaces.values()
+        self.wlr
+            .layer_surfaces
+            .values()
             .filter(|ls| ls.read().unwrap().output_id == output_id)
             .cloned()
             .collect()

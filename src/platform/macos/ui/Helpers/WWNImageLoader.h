@@ -1,11 +1,6 @@
 #import <Foundation/Foundation.h>
-#if TARGET_OS_IPHONE
-#import <UIKit/UIKit.h>
-typedef UIImage *WImage;
-#else
 #import <AppKit/AppKit.h>
 typedef NSImage *WImage;
-#endif
 
 NS_ASSUME_NONNULL_BEGIN
 

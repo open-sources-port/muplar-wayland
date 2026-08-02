@@ -3,13 +3,11 @@
 //! This protocol allows clients to mark toplevels as dialog windows,
 //! optionally making them modal (preventing interaction with the parent).
 
-use wayland_server::{
-    Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, New, Resource,
-};
 use wayland_protocols::xdg::dialog::v1::server::{
     xdg_dialog_v1::{self, XdgDialogV1},
     xdg_wm_dialog_v1::{self, XdgWmDialogV1},
 };
+use wayland_server::{Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, New, Resource};
 
 use crate::core::state::CompositorState;
 

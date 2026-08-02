@@ -29,9 +29,9 @@ impl XkbContext {
         // it cannot add the default include path, which causes a crash later.
         // Use NO_DEFAULT_INCLUDES so the context is always valid; keymap loading from
         // names will fail gracefully and we fall back to MINIMAL_KEYMAP.
-        #[cfg(any(target_os = "ios", target_os = "android"))]
+        #[cfg(target_os = "android")]
         let flags = xkb::CONTEXT_NO_DEFAULT_INCLUDES;
-        #[cfg(not(any(target_os = "ios", target_os = "android")))]
+        #[cfg(not(target_os = "android"))]
         let flags = xkb::CONTEXT_NO_FLAGS;
 
         Self {
@@ -94,7 +94,8 @@ impl XkbState {
             variant,
             options,
             xkb::KEYMAP_COMPILE_NO_FLAGS,
-        ).ok_or(())?;
+        )
+        .ok_or(())?;
 
         let state = xkb::State::new(&keymap);
         let keymap_string = keymap.get_as_string(xkb::KEYMAP_FORMAT_TEXT_V1);
@@ -119,7 +120,8 @@ impl XkbState {
             keymap_str.to_string(),
             xkb::KEYMAP_FORMAT_TEXT_V1,
             xkb::KEYMAP_COMPILE_NO_FLAGS,
-        ).ok_or(())?;
+        )
+        .ok_or(())?;
 
         let state = xkb::State::new(&keymap);
         let keymap_string = keymap.get_as_string(xkb::KEYMAP_FORMAT_TEXT_V1);
@@ -157,7 +159,8 @@ impl XkbState {
         locked: xkb::ModMask,
         group: xkb::LayoutIndex,
     ) {
-        self.state.update_mask(depressed, latched, locked, 0, 0, group);
+        self.state
+            .update_mask(depressed, latched, locked, 0, 0, group);
     }
 
     /// Process a key event through XKB. Returns keysym, UTF-8 text, and
@@ -200,7 +203,8 @@ impl XkbState {
     /// Check if a specific modifier is active
     pub fn mod_is_active(&self, name: &str) -> bool {
         // xkbcommon mod names: "Shift", "Control", "Mod1" (Alt), "Mod4" (Super)
-        self.state.mod_name_is_active(name, xkb::STATE_MODS_EFFECTIVE)
+        self.state
+            .mod_name_is_active(name, xkb::STATE_MODS_EFFECTIVE)
     }
 }
 

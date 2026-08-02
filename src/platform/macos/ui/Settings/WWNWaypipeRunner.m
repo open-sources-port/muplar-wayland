@@ -20,9 +20,7 @@ extern int weston_terminal_main(int argc, char **argv);
 
 @interface WWNWaypipeRunner () <WWNSSHClientDelegate>
 @property(nonatomic, assign) pid_t currentPid;
-#if !TARGET_OS_IPHONE
 @property(nonatomic, strong) NSTask *currentTask;
-#endif
 @property(nonatomic, strong) WWNSSHClient *sshClient;
 @property(nonatomic, assign) BOOL running;
 @property(nonatomic, assign) BOOL stopping;
@@ -30,20 +28,9 @@ extern int weston_terminal_main(int argc, char **argv);
 @property(nonatomic, assign) BOOL westonSimpleSHMRunning;
 @property(nonatomic, assign) BOOL westonRunning;
 @property(nonatomic, assign) BOOL westonTerminalRunning;
-#if !TARGET_OS_IPHONE
 @property(nonatomic, strong) NSTask *westonSimpleSHMTask;
 @property(nonatomic, strong) NSTask *westonTask;
 @property(nonatomic, strong) NSTask *westonTerminalTask;
-#endif
-#if TARGET_OS_IPHONE
-@property(nonatomic, assign)
-    int stderrReadFd; // Pipe read end for stderr capture
-@property(nonatomic, assign)
-    int stdoutReadFd; // Pipe read end for stdout capture
-@property(nonatomic, assign) int savedStderr; // Saved original stderr fd
-@property(nonatomic, assign) int savedStdout; // Saved original stdout fd
-@property(nonatomic, strong) NSLock *fdLock;  // Protects fd close/access
-#endif
 @end
 
 @implementation WWNWaypipeRunner
@@ -62,13 +49,6 @@ extern int weston_terminal_main(int argc, char **argv);
   if (self) {
     _running = NO;
     _stopping = NO;
-#if TARGET_OS_IPHONE
-    _stderrReadFd = -1;
-    _stdoutReadFd = -1;
-    _savedStderr = -1;
-    _savedStdout = -1;
-    _fdLock = [[NSLock alloc] init];
-#endif
   }
   return self;
 }
@@ -81,35 +61,6 @@ extern int weston_terminal_main(int argc, char **argv);
   return self.westonSimpleSHMRunning;
 }
 
-#if TARGET_OS_IPHONE
-/// Thread-safe cleanup of all redirected file descriptors.
-/// Uses fdLock to ensure only one caller (completion block or stopWaypipe)
-/// can close the fds, preventing double-close crashes.
-- (void)cleanupFileDescriptors {
-  [self.fdLock lock];
-
-  if (self.savedStderr >= 0) {
-    dup2(self.savedStderr, STDERR_FILENO);
-    close(self.savedStderr);
-    self.savedStderr = -1;
-  }
-  if (self.savedStdout >= 0) {
-    dup2(self.savedStdout, STDOUT_FILENO);
-    close(self.savedStdout);
-    self.savedStdout = -1;
-  }
-  if (self.stderrReadFd >= 0) {
-    close(self.stderrReadFd);
-    self.stderrReadFd = -1;
-  }
-  if (self.stdoutReadFd >= 0) {
-    close(self.stdoutReadFd);
-    self.stdoutReadFd = -1;
-  }
-
-  [self.fdLock unlock];
-}
-#endif
 
 // MARK: - Binary Discovery
 
@@ -133,15 +84,6 @@ extern int weston_terminal_main(int argc, char **argv);
     return resourcePath;
   }
 
-#if TARGET_OS_IPHONE
-  // On iOS check bundle root
-  NSString *bundlePath =
-      [[NSBundle mainBundle].bundlePath stringByResolvingSymlinksInPath];
-  path = [bundlePath stringByAppendingPathComponent:@"waypipe"];
-  if ([[NSFileManager defaultManager] isExecutableFileAtPath:path]) {
-    return path;
-  }
-#endif
 
   return nil;
 }
@@ -168,15 +110,6 @@ extern int weston_terminal_main(int argc, char **argv);
     return resourcePath;
   }
 
-#if TARGET_OS_IPHONE
-  // On iOS check bundle root
-  NSString *bundlePath =
-      [[NSBundle mainBundle].bundlePath stringByResolvingSymlinksInPath];
-  path = [bundlePath stringByAppendingPathComponent:@"weston-simple-shm"];
-  if ([[NSFileManager defaultManager] isExecutableFileAtPath:path]) {
-    return path;
-  }
-#endif
 
   return nil;
 }
@@ -191,14 +124,6 @@ extern int weston_terminal_main(int argc, char **argv);
     return path;
   }
 
-#if TARGET_OS_IPHONE
-  NSString *bundlePath =
-      [[NSBundle mainBundle].bundlePath stringByResolvingSymlinksInPath];
-  path = [bundlePath stringByAppendingPathComponent:@"sshpass"];
-  if ([[NSFileManager defaultManager] isExecutableFileAtPath:path]) {
-    return path;
-  }
-#endif
 
   return nil;
 }
@@ -245,13 +170,6 @@ extern int weston_terminal_main(int argc, char **argv);
     compressArg = [NSString stringWithFormat:@"%@=%@", compress, compressLevel];
   }
   BOOL shouldAddCompress = (compressArg.length > 0);
-#if TARGET_OS_IPHONE
-  // iOS libssh2 SSH path currently brings up remote waypipe server with default
-  // compression. Forcing local "--compress none" causes header mismatch.
-  if (usingSSHMode && [compress isEqualToString:@"none"]) {
-    shouldAddCompress = NO;
-  }
-#endif
   if (shouldAddCompress) {
     [args addObject:@"--compress"];
     [args addObject:compressArg];
@@ -263,20 +181,9 @@ extern int weston_terminal_main(int argc, char **argv);
   if (prefs.waypipeNoGpu) {
     [args addObject:@"--no-gpu"];
   }
-#if TARGET_OS_IPHONE
-  // iOS App Store compliance: ALWAYS force --oneshot in SSH mode.
-  // The static libssh2 code path (oneshot) handles SSH in-process;
-  // without it waypipe tries to exec an external "ssh" binary which
-  // is forbidden on iOS.  The user toggle still works for non-SSH
-  // (local) usage.
-  if (prefs.waypipeOneshot || usingSSHMode) {
-    [args addObject:@"--oneshot"];
-  }
-#else
   if (prefs.waypipeOneshot) {
     [args addObject:@"--oneshot"];
   }
-#endif
   if (prefs.waypipeUnlinkSocket) {
     [args addObject:@"--unlink-socket"];
   }
@@ -336,33 +243,12 @@ extern int weston_terminal_main(int argc, char **argv);
     [args addObject:[videoParts componentsJoinedByString:@","]];
   }
 
-#if !TARGET_OS_IPHONE
   NSString *sshBinary = trimmed(prefs.waypipeSSHBinary);
   if (sshBinary.length > 0 && ![sshBinary isEqualToString:@"ssh"]) {
     [args addObject:@"--ssh-bin"];
     [args addObject:sshBinary];
   }
-#endif
 
-#if TARGET_OS_IPHONE
-  // iOS sandbox paths are very long (~85 chars for XDG_RUNTIME_DIR).
-  // waypipe appends random suffixes to the socket prefix, easily exceeding
-  // the Unix socket SUN_LEN limit of 104 bytes.
-  // Use a compact path for the socket prefix.
-  if (!prefs.waypipeVsock) {
-#if TARGET_OS_SIMULATOR
-    NSString *tmpDir = @"/tmp";
-#else
-    NSString *tmpDir = NSTemporaryDirectory();
-    if (!tmpDir)
-      tmpDir = @"/tmp";
-#endif
-    NSString *socketPrefix = [tmpDir stringByAppendingPathComponent:@"wp"];
-    [args addObject:@"-s"];
-    [args addObject:socketPrefix];
-  }
-
-#endif
 
   // In ssh mode, forcing --display to "wayland-0" makes the remote
   // waypipe-server try to bind an existing compositor socket and fail
@@ -379,14 +265,12 @@ extern int weston_terminal_main(int argc, char **argv);
     // 2. SSH Subcommand (Only if we have a target)
     [args addObject:@"ssh"];
 
-#if !TARGET_OS_IPHONE
     // iOS uses libssh2 in-process (not openssh), so -F is meaningless and
     // can confuse the SSH argument parser in the libssh2 bridge code.
     if (!prefs.waypipeUseSSHConfig) {
       [args addObject:@"-F"];
       [args addObject:@"/dev/null"];
     }
-#endif
 
     // SSH Safety options
     [args addObject:@"-o"];
@@ -465,27 +349,6 @@ extern int weston_terminal_main(int argc, char **argv);
     }
   }
 
-#if TARGET_OS_IPHONE
-  NSString *socketDir = prefs.waylandSocketDir;
-  if (!socketDir || socketDir.length == 0) {
-    const char *envDir = getenv("XDG_RUNTIME_DIR");
-    if (envDir) {
-      socketDir = [NSString stringWithUTF8String:envDir];
-    }
-  }
-  if (!socketDir || socketDir.length == 0) {
-    return @"XDG_RUNTIME_DIR is not set. The compositor may not be running.";
-  }
-
-  NSString *socketPath = [socketDir stringByAppendingPathComponent:display];
-  if (![[NSFileManager defaultManager] fileExistsAtPath:socketPath]) {
-    return [NSString
-        stringWithFormat:
-            @"Wayland socket not found at: %@\n\nThe compositor may not be "
-            @"running, or the display name is incorrect.",
-            socketPath];
-  }
-#else
   NSMutableArray<NSString *> *candidateDirs = [NSMutableArray array];
   const char *envDir = getenv("XDG_RUNTIME_DIR");
   if (envDir) {
@@ -525,7 +388,6 @@ extern int weston_terminal_main(int argc, char **argv);
             @"running, or the display name is incorrect.",
             fallbackPath];
   }
-#endif
 
   // 3. Check SSH settings are configured (when SSH is enabled)
   if (prefs.waypipeSSHEnabled) {
@@ -553,7 +415,6 @@ extern int weston_terminal_main(int argc, char **argv);
 // MARK: - Launch
 
 - (void)launchWaypipe:(WWNPreferencesManager *)prefs {
-#if !TARGET_OS_IPHONE
   NSString *waypipePath = [self findWaypipeBinary];
   if (!waypipePath) {
     if ([self.delegate
@@ -572,12 +433,7 @@ extern int weston_terminal_main(int argc, char **argv);
   }
 
   WWNLog("WAYPIPE", @"Using waypipe binary at: %@", waypipePath);
-#endif
 
-#if TARGET_OS_IPHONE && TARGET_OS_SIMULATOR
-  WWNLog("WAYPIPE", @"NOTE: Running on iOS Simulator. Local networking may be "
-                    @"restricted.");
-#endif
 
   // Pre-flight validation
   NSString *preflightError = [self validatePreflightForPrefs:prefs];
@@ -598,10 +454,6 @@ extern int weston_terminal_main(int argc, char **argv);
     return;
   }
 
-#if TARGET_OS_IPHONE
-  [self launchWaypipeInProcess:prefs];
-  return;
-#else
   // macOS NSTask Implementation
   NSArray *args = [self buildWaypipeArguments:prefs];
   NSTask *task = [[NSTask alloc] init];
@@ -658,7 +510,6 @@ extern int weston_terminal_main(int argc, char **argv);
            displayNameTask);
   }
 
-#if !TARGET_OS_IPHONE
   NSString *configuredSocketPath =
       [socketDirTask stringByAppendingPathComponent:displayNameTask];
   if (![[NSFileManager defaultManager] fileExistsAtPath:configuredSocketPath]) {
@@ -672,7 +523,6 @@ extern int weston_terminal_main(int argc, char **argv);
       socketDirTask = runtimeFallback;
     }
   }
-#endif
 
   WWNLog("WAYPIPE",
          @"Setting environment: XDG_RUNTIME_DIR=%@, "
@@ -780,7 +630,6 @@ extern int weston_terminal_main(int argc, char **argv);
                          isError:YES];
     }
   }
-#endif
 }
 
 // MARK: - Output Monitoring
@@ -811,20 +660,7 @@ extern int weston_terminal_main(int argc, char **argv);
   // Write to the saved (original) stderr to avoid feedback loop.
   // When stderr is redirected to a pipe, NSLog may write to the pipe
   // which causes the monitor thread to read it back, creating an infinite loop.
-#if TARGET_OS_IPHONE
-  [self.fdLock lock];
-  int fd = self.savedStderr;
-  [self.fdLock unlock];
-  if (fd >= 0) {
-    WWNLogFd(fd, "WAYPIPE", "[Waypipe %s] %s", isError ? "stderr" : "stdout",
-             [text UTF8String]);
-  } else {
-    WWNLog("WAYPIPE", @"[Waypipe %@] %@", isError ? @"stderr" : @"stdout",
-           text);
-  }
-#else
   WWNLog("WAYPIPE", @"[Waypipe %@] %@", isError ? @"stderr" : @"stdout", text);
-#endif
 
   if ([self.delegate
           respondsToSelector:@selector(runnerDidReceiveOutput:isError:)]) {
@@ -855,235 +691,16 @@ extern int weston_terminal_main(int argc, char **argv);
 
 // MARK: - iOS In-Process Launch
 
-#if TARGET_OS_IPHONE
-- (void)launchWaypipeInProcess:(WWNPreferencesManager *)prefs {
-  // Build arguments
-  NSArray *args = [self buildWaypipeArguments:prefs];
-
-  // App Store compliance / iOS sandbox safety:
-  // Never allow paths that require spawning a local external ssh binary.
-  BOOL hasSshBinOverride = [args containsObject:@"--ssh-bin"];
-  if (hasSshBinOverride) {
-    if ([self.delegate
-            respondsToSelector:@selector(runnerDidReceiveOutput:isError:)]) {
-      [self.delegate
-          runnerDidReceiveOutput:
-              @"[SAFETY] Blocked launch: iOS forbids external process exec. "
-              @"--ssh-bin is not allowed in iOS mode.\n"
-                         isError:YES];
-    }
-    if ([self.delegate
-            respondsToSelector:@selector(runnerDidReceiveSSHError:)]) {
-      [self.delegate
-          runnerDidReceiveSSHError:
-              @"Blocked unsafe iOS launch mode (external process execution)."];
-    }
-    self.running = NO;
-    return;
-  }
-
-  NSMutableArray *fullArgs = [NSMutableArray arrayWithObject:@"waypipe"];
-  [fullArgs addObjectsFromArray:args];
-
-  // Convert to C arguments
-  int argc = (int)fullArgs.count;
-  char **argv = (char **)malloc(sizeof(char *) * (argc + 1));
-  for (int i = 0; i < argc; i++) {
-    argv[i] = strdup([fullArgs[i] UTF8String]);
-  }
-  argv[argc] = NULL;
-
-  // Resolve environment variables
-  NSString *socketDir = prefs.waylandSocketDir;
-  if (!socketDir || socketDir.length == 0) {
-    const char *envDir = getenv("XDG_RUNTIME_DIR");
-    if (envDir) {
-      socketDir = [NSString stringWithUTF8String:envDir];
-    } else {
-      socketDir = NSTemporaryDirectory();
-    }
-  }
-
-  NSString *display = prefs.waypipeDisplay;
-  if (!display || display.length == 0) {
-    const char *envDisplay = getenv("WAYLAND_DISPLAY");
-    if (envDisplay) {
-      display = [NSString stringWithUTF8String:envDisplay];
-    } else {
-      display = @"wayland-0";
-    }
-  }
-
-  setenv("XDG_RUNTIME_DIR", [socketDir UTF8String], 1);
-  setenv("WAYLAND_DISPLAY", [display UTF8String], 1);
-  setenv("USER", "mobile", 1);
-
-  NSString *password = prefs.waypipeSSHPassword.length > 0
-                           ? prefs.waypipeSSHPassword
-                           : prefs.sshPassword;
-  if (password && password.length > 0) {
-    setenv("WAYPIPE_SSH_PASSWORD", [password UTF8String], 1);
-  }
-
-  // Report configuration to delegate
-  NSString *socketPath = [socketDir stringByAppendingPathComponent:display];
-  NSString *configInfo = [NSString
-      stringWithFormat:@"[CONFIG] XDG_RUNTIME_DIR = %@\n"
-                       @"[CONFIG] WAYLAND_DISPLAY = %@\n"
-                       @"[CONFIG] Socket path    = %@\n"
-                       @"[CONFIG] SSH password   = %@\n"
-                       @"[CONFIG] Arguments      = %@\n",
-                       socketDir, display, socketPath,
-                       (password.length > 0 ? @"(set)" : @"(not set)"),
-                       [fullArgs componentsJoinedByString:@" "]];
-
-  if ([self.delegate
-          respondsToSelector:@selector(runnerDidReceiveOutput:isError:)]) {
-    [self.delegate runnerDidReceiveOutput:configInfo isError:NO];
-  }
-
-  WWNLog("WAYPIPE", @"Launching statically linked Waypipe (args: %@)...",
-         fullArgs);
-
-  self.running = YES;
-  self.stopping = NO;
-
-  // Set up stderr/stdout capture BEFORE calling waypipe_main.
-  // We redirect stderr/stdout to pipes so we can read the Rust output
-  // and show it in the UI. We also save the original FDs so crash
-  // diagnostics and our own logging still work.
-  int stderrPipe[2] = {-1, -1};
-  int stdoutPipe[2] = {-1, -1};
-
-  if (pipe(stderrPipe) != 0) {
-    WWNLog("WAYPIPE", @"WARNING: Failed to create stderr pipe: %s",
-           strerror(errno));
-  }
-  if (pipe(stdoutPipe) != 0) {
-    WWNLog("WAYPIPE", @"WARNING: Failed to create stdout pipe: %s",
-           strerror(errno));
-  }
-
-  // Save original file descriptors so we can log to them directly
-  int savedStderr = dup(STDERR_FILENO);
-  int savedStdout = dup(STDOUT_FILENO);
-  self.savedStderr = savedStderr;
-  self.savedStdout = savedStdout;
-
-  // Redirect stderr and stdout to our pipes
-  if (stderrPipe[1] >= 0) {
-    dup2(stderrPipe[1], STDERR_FILENO);
-    close(stderrPipe[1]); // Close write end (stderr now writes to pipe)
-    self.stderrReadFd = stderrPipe[0];
-  }
-  if (stdoutPipe[1] >= 0) {
-    dup2(stdoutPipe[1], STDOUT_FILENO);
-    close(stdoutPipe[1]); // Close write end (stdout now writes to pipe)
-    self.stdoutReadFd = stdoutPipe[0];
-  }
-
-  // Start monitoring threads for the pipe read ends
-  if (self.stderrReadFd >= 0) {
-    [self monitorDescriptor:self.stderrReadFd isError:YES];
-  }
-  if (self.stdoutReadFd >= 0) {
-    [self monitorDescriptor:self.stdoutReadFd isError:NO];
-  }
-
-  if ([self.delegate
-          respondsToSelector:@selector(runnerDidReceiveOutput:isError:)]) {
-    [self.delegate
-        runnerDidReceiveOutput:@"[LAUNCH] Starting waypipe_main()...\n"
-                       isError:NO];
-  }
-
-  // Run waypipe_main on a Utility-QoS background thread.
-  // Using QOS_CLASS_UTILITY (not DEFAULT) avoids a priority inversion:
-  // the UI thread dispatches at User-initiated QoS, waypipe's internal
-  // Rust scoped threads run at Default QoS.  If we dispatched to DEFAULT,
-  // GCD would promote this block → higher-QoS thread waiting on lower-QoS
-  // Rust threads → hang risk.  Utility QoS is ≤ Default, so no inversion.
-  dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
-    // Use WWNLogFd to saved stderr - NSLog writes to redirected stderr
-    // which would go to the pipe and create a feedback loop
-    if (savedStderr >= 0) {
-      WWNLogFd(savedStderr, "WAYPIPE",
-               "Starting execution via waypipe_main...");
-    }
-
-    // Set RUST_BACKTRACE for better diagnostics
-    setenv("RUST_BACKTRACE", "1", 1);
-
-    // Verify the function symbol is actually linked (not null)
-    void *fn_addr = (void *)waypipe_main;
-    if (fn_addr == NULL) {
-      if (savedStderr >= 0) {
-        WWNLogFd(savedStderr, "WAYPIPE",
-                 "FATAL: waypipe_main symbol is NULL! "
-                 "The Rust static library may not be linked correctly.");
-      }
-      [self cleanupFileDescriptors];
-      for (int i = 0; i < argc; i++) {
-        free(argv[i]);
-      }
-      free(argv);
-      self.running = NO;
-      return;
-    }
-
-    int result = waypipe_main(argc, argv);
-    if (savedStderr >= 0) {
-      WWNLogFd(savedStderr, "WAYPIPE", "Execution finished. Exit code: %d",
-               result);
-    }
-
-    // Flush stderr/stdout so pipe readers get all data
-    fflush(stderr);
-    fflush(stdout);
-
-    // Small delay to let pipe readers finish draining
-    usleep(100000); // 100ms
-
-    // Restore original fds and close pipe ends (thread-safe)
-    [self cleanupFileDescriptors];
-
-    // Cleanup C args
-    for (int i = 0; i < argc; i++) {
-      free(argv[i]);
-    }
-    free(argv);
-
-    self.running = NO;
-
-    dispatch_async(dispatch_get_main_queue(), ^{
-      NSString *exitMsg = [NSString
-          stringWithFormat:@"\n[EXIT] waypipe_main returned %d\n", result];
-
-      if ([self.delegate
-              respondsToSelector:@selector(runnerDidReceiveOutput:isError:)]) {
-        [self.delegate runnerDidReceiveOutput:exitMsg isError:(result != 0)];
-      }
-
-      if ([self.delegate
-              respondsToSelector:@selector(runnerDidFinishWithExitCode:)]) {
-        [self.delegate runnerDidFinishWithExitCode:result];
-      }
-    });
-  });
-}
-#endif
 
 // MARK: - Stop
 
 - (void)stopWaypipe {
   self.stopping = YES;
 
-#if !TARGET_OS_IPHONE
   if (self.currentTask) {
     [self.currentTask terminate];
     self.currentTask = nil;
   }
-#endif
 
   if (self.currentPid > 0) {
     kill(-self.currentPid, SIGTERM);
@@ -1097,11 +714,6 @@ extern int weston_terminal_main(int argc, char **argv);
     g_active_waypipe_pgid = 0;
   }
 
-#if TARGET_OS_IPHONE
-  // On iOS, waypipe runs in-process. We can't kill a thread, but we can
-  // restore file descriptors to stop capturing output and signal cleanup.
-  [self cleanupFileDescriptors];
-#endif
 
   if (self.sshClient) {
     [self.sshClient disconnect];
@@ -1120,35 +732,6 @@ extern int weston_terminal_main(int argc, char **argv);
 
   self.westonSimpleSHMRunning = YES;
 
-#if TARGET_OS_IPHONE
-  dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
-    void *fn_addr = (void *)weston_simple_shm_main;
-    if (fn_addr == NULL) {
-      WWNLog("WESTON_SHM", @"FATAL: weston_simple_shm_main symbol is NULL!");
-      self.westonSimpleSHMRunning = NO;
-      return;
-    }
-
-    char *argv_shm[] = {"weston-simple-shm", NULL};
-    int argc_shm = 1;
-
-    char saved_cwd[512] = "";
-    const char *xdg_dir = getenv("XDG_RUNTIME_DIR");
-    if (xdg_dir) {
-      getcwd(saved_cwd, sizeof(saved_cwd));
-      chdir(xdg_dir);
-    }
-
-    WWNLog("WESTON_SHM", @"Launching in-process weston-simple-shm...");
-    int result = weston_simple_shm_main(argc_shm, argv_shm);
-    WWNLog("WESTON_SHM", @"weston_simple_shm_main exit code: %d", result);
-
-    if (saved_cwd[0])
-      chdir(saved_cwd);
-
-    self.westonSimpleSHMRunning = NO;
-  });
-#else
   NSString *path = [self findWestonSimpleSHMBinary];
   if (!path) {
     WWNLog("WESTON_SHM",
@@ -1179,25 +762,17 @@ extern int weston_terminal_main(int argc, char **argv);
     WWNLog("WESTON_SHM", @"Failed to launch weston-simple-shm: %@", err);
     self.westonSimpleSHMRunning = NO;
   }
-#endif
 }
 
 - (void)stopWestonSimpleSHM {
-#if TARGET_OS_IPHONE
-  // There's no clean way to stop it natively right now since
-  // wl_display_dispatch runs forever.
-  self.westonSimpleSHMRunning = NO;
-#else
   if (self.westonSimpleSHMTask) {
     [self.westonSimpleSHMTask terminate];
     self.westonSimpleSHMTask = nil;
   }
   self.westonSimpleSHMRunning = NO;
-#endif
 }
 
 // MARK: - Generic Weston Launch Helpers
-#if !TARGET_OS_IPHONE
 - (NSString *)findBinaryNamed:(NSString *)name {
   NSBundle *bundle = [NSBundle mainBundle];
   NSFileManager *fm = [NSFileManager defaultManager];
@@ -1259,7 +834,6 @@ extern int weston_terminal_main(int argc, char **argv);
     *runningFlag = NO;
   }
 }
-#endif
 
 // MARK: - Native Weston Executable
 
@@ -1267,31 +841,6 @@ extern int weston_terminal_main(int argc, char **argv);
   if (self.westonRunning)
     return;
   self.westonRunning = YES;
-#if TARGET_OS_IPHONE
-  dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
-    // iOS currently links compatibility shims for weston/weston-terminal.
-    // Use the known-good weston-simple-shm in-process entrypoint so toggles
-    // reliably produce visible output while shim wiring evolves.
-    char *argv_weston[] = {"weston-simple-shm", NULL};
-    int argc_weston = 1;
-
-    char saved_cwd[512] = "";
-    const char *xdg_dir = getenv("XDG_RUNTIME_DIR");
-    if (xdg_dir) {
-      getcwd(saved_cwd, sizeof(saved_cwd));
-      chdir(xdg_dir);
-    }
-
-    WWNLog("WESTON", @"Launching iOS compatibility client (weston-simple-shm path)...");
-    int result = weston_simple_shm_main(argc_weston, argv_weston);
-    WWNLog("WESTON", @"compatibility weston path exit code: %d", result);
-
-    if (saved_cwd[0])
-      chdir(saved_cwd);
-
-    self.westonRunning = NO;
-  });
-#else
   NSTask *task = nil;
   BOOL running = YES;
   [self launchGenericWestonClient:@"weston"
@@ -1299,19 +848,14 @@ extern int weston_terminal_main(int argc, char **argv);
                     runningFlagIn:&running];
   self.westonTask = task;
   self.westonRunning = running;
-#endif
 }
 
 - (void)stopWeston {
-#if TARGET_OS_IPHONE
-  self.westonRunning = NO;
-#else
   if (self.westonTask) {
     [self.westonTask terminate];
     self.westonTask = nil;
   }
   self.westonRunning = NO;
-#endif
 }
 
 // MARK: - Weston Terminal
@@ -1319,30 +863,6 @@ extern int weston_terminal_main(int argc, char **argv);
   if (self.westonTerminalRunning)
     return;
   self.westonTerminalRunning = YES;
-#if TARGET_OS_IPHONE
-  dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
-    // iOS compatibility fallback: route through weston-simple-shm so the
-    // setting is functional even when terminal shim is not yet fully wired.
-    char *argv_term[] = {"weston-simple-shm", NULL};
-    int argc_term = 1;
-
-    char saved_cwd[512] = "";
-    const char *xdg_dir = getenv("XDG_RUNTIME_DIR");
-    if (xdg_dir) {
-      getcwd(saved_cwd, sizeof(saved_cwd));
-      chdir(xdg_dir);
-    }
-
-    WWNLog("WESTON_TERM", @"Launching iOS compatibility terminal path (weston-simple-shm)...");
-    int result = weston_simple_shm_main(argc_term, argv_term);
-    WWNLog("WESTON_TERM", @"compatibility weston-terminal path exit code: %d", result);
-
-    if (saved_cwd[0])
-      chdir(saved_cwd);
-
-    self.westonTerminalRunning = NO;
-  });
-#else
   NSString *path = [self findBinaryNamed:@"weston-terminal"];
   if (!path) {
     WWNLog("WESTON_TERM", @"Could not find weston-terminal in app bundle.");
@@ -1419,19 +939,14 @@ extern int weston_terminal_main(int argc, char **argv);
     WWNLog("WESTON_TERM", @"Failed to launch weston-terminal: %@", err);
     self.westonTerminalRunning = NO;
   }
-#endif
 }
 
 - (void)stopWestonTerminal {
-#if TARGET_OS_IPHONE
-  self.westonTerminalRunning = NO;
-#else
   if (self.westonTerminalTask) {
     [self.westonTerminalTask terminate];
     self.westonTerminalTask = nil;
   }
   self.westonTerminalRunning = NO;
-#endif
 }
 
 @end
