@@ -49,19 +49,31 @@ pub struct TextInputState {
 }
 
 impl TextInputState {
-    /// Send enter event to all text inputs associated with the focused surface
+    /// Send enter to the focused surface's own text inputs.
+    ///
+    /// Only instances owned by the surface's client may receive it. Sending a
+    /// surface to another client's object makes wayland-backend panic with
+    /// "Attempting to send an event with objects from wrong client", and that
+    /// panic fires while the state lock is held -- poisoning it, so every later
+    /// unwrap panics and the compositor skips every tick from then on. With a
+    /// single client the mismatch cannot arise, so this only breaks once a
+    /// second application connects.
     pub fn enter(&mut self, surface: &wayland_server::protocol::wl_surface::WlSurface) {
+        let client = surface.client();
         for (_id, instance) in &self.instances {
-            if instance.resource.is_alive() {
+            if instance.resource.is_alive() && instance.resource.client() == client {
                 instance.resource.enter(surface);
             }
         }
     }
 
-    /// Send leave event to all text inputs associated with the focused surface
+    /// Send leave event to the focused surface's own text inputs.
+    ///
+    /// Same client-ownership rule as `enter`.
     pub fn leave(&mut self, surface: &wayland_server::protocol::wl_surface::WlSurface) {
+        let client = surface.client();
         for (_id, instance) in &self.instances {
-            if instance.resource.is_alive() {
+            if instance.resource.is_alive() && instance.resource.client() == client {
                 instance.resource.leave(surface);
             }
         }
