@@ -174,11 +174,18 @@ impl Dispatch<xdg_surface::XdgSurface, u32> for CompositorState {
                         }
                     }
 
-                    // Get positioner data
+                    // Get positioner data. Copy rather than take: the positioner
+                    // object stays owned by the client until it sends
+                    // xdg_positioner.destroy, and clients are free to reuse one
+                    // for several popups or to hand the same one back to
+                    // xdg_popup.reposition. Removing it here left those later
+                    // lookups falling through to Default -- a 0x0 popup anchored
+                    // at the origin, which maps as an invisible 1x1 window.
                     let positioner_data = state
                         .xdg
                         .positioners
-                        .remove(&(client_id.clone(), positioner.id().protocol_id()))
+                        .get(&(client_id.clone(), positioner.id().protocol_id()))
+                        .copied()
                         .unwrap_or_default();
 
                     // Get output dimensions for initial size
