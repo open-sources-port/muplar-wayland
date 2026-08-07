@@ -51,6 +51,44 @@ impl Dispatch<xdg_toplevel::XdgToplevel, u32> for CompositorState {
                 tracing::debug!("xdg_toplevel.set_app_id: \"{}\"", app_id);
                 // Store app_id - could be used for window grouping
             }
+            xdg_toplevel::Request::SetParent { parent } => {
+                // A nil parent unsets the relationship, which is how a client
+                // detaches a dialog before destroying it.
+                let parent_window_id = parent.as_ref().and_then(|p| {
+                    state
+                        .xdg
+                        .toplevels
+                        .get(&(client_id.clone(), p.id().protocol_id()))
+                        .map(|d| d.window_id)
+                });
+
+                if let Some(data) = &data {
+                    if let Some(tl_data) = state
+                        .xdg
+                        .toplevels
+                        .get_mut(&(client_id.clone(), toplevel_id))
+                    {
+                        tl_data.parent = parent_window_id;
+                    }
+
+                    tracing::debug!(
+                        "xdg_toplevel.set_parent: window {} parent={:?}",
+                        data.window_id,
+                        parent_window_id
+                    );
+
+                    // The host has to hear about this, not just the state map:
+                    // a modal dialog is an ordinary toplevel, and only the
+                    // parent link tells the platform layer to stack it above
+                    // the window whose input the client has already grabbed.
+                    state.pending_compositor_events.push(
+                        crate::core::compositor::CompositorEvent::WindowParentChanged {
+                            window_id: data.window_id,
+                            parent_id: parent_window_id.unwrap_or(0),
+                        },
+                    );
+                }
+            }
             xdg_toplevel::Request::SetMaxSize { width, height } => {
                 tracing::trace!("xdg_toplevel.set_max_size: {}x{}", width, height);
                 if let Some(tl_data) = state

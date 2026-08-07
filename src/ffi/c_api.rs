@@ -288,6 +288,7 @@ pub enum CWindowEventType {
     MaximizeRequested = 10,
     UnmaximizeRequested = 11,
     CloseRequested = 12,
+    ParentChanged = 13,
 }
 
 /// C-compatible window event structure
@@ -378,6 +379,21 @@ pub extern "C" fn WWNCorePopWindowEvent(core: *mut WWNCore) -> *mut CWindowEvent
                     c_event.window_id = window_id.id;
                     c_event.width = width;
                     c_event.height = height;
+                    true
+                }
+                super::types::WindowEvent::WindowParentChanged {
+                    window_id,
+                    parent_id,
+                } => {
+                    c_event.event_type = CWindowEventType::ParentChanged as u64;
+                    c_event.window_id = window_id.id;
+                    c_event.parent_id = parent_id.id;
+
+                    tracing::info!(
+                        "FFI: WindowParentChanged {} parent={}",
+                        window_id.id,
+                        parent_id.id
+                    );
                     true
                 }
                 super::types::WindowEvent::PopupCreated {

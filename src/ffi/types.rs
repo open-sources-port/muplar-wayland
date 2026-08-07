@@ -648,6 +648,11 @@ pub enum WindowEvent {
         width: u32,
         height: u32,
     },
+    /// xdg_toplevel.set_parent. parent_id.id == 0 means the parent was unset.
+    WindowParentChanged {
+        window_id: WindowId,
+        parent_id: WindowId,
+    },
 
     // Minimize/close requests
     MinimizeRequested {

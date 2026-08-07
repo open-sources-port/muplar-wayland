@@ -1481,6 +1481,7 @@ typedef enum : uint32_t {
   CWindowEventTypeMaximizeRequested = 10,
   CWindowEventTypeUnmaximizeRequested = 11,
   CWindowEventTypeCloseRequested = 12,
+  CWindowEventTypeParentChanged = 13,
 } CWindowEventType;
 
 typedef struct CWindowEvent {
@@ -1557,6 +1558,9 @@ extern void WWNWindowInfoFree(CWindowInfo *info);
     break;
   case CWindowEventTypeCloseRequested:
     [self handleWindowCloseRequested:event];
+    break;
+  case CWindowEventTypeParentChanged:
+    [self handleWindowParentChanged:event];
     break;
   }
 }
@@ -2009,6 +2013,40 @@ extern void WWNWindowInfoFree(CWindowInfo *info);
       window.processingResize = NO;
     }
   }
+}
+
+- (void)handleWindowParentChanged:(CWindowEvent *)event {
+  NSWindow *child = [self.windows objectForKey:@(event->window_id)];
+  if (!child) {
+    WWNLog("BRIDGE", @"ParentChanged for unknown window %llu",
+           event->window_id);
+    return;
+  }
+
+  // Detach from whatever it was attached to first: set_parent can retarget, and
+  // AppKit keeps a window in its old parent's child list otherwise.
+  if (child.parentWindow) {
+    [child.parentWindow removeChildWindow:child];
+  }
+
+  if (event->parent_id == 0) {
+    WWNLog("BRIDGE", @"Window %llu parent unset", event->window_id);
+    return;
+  }
+
+  NSWindow *parent = [self.windows objectForKey:@(event->parent_id)];
+  if (!parent) {
+    WWNLog("BRIDGE", @"ParentChanged: parent %llu not found for window %llu",
+           event->parent_id, event->window_id);
+    return;
+  }
+
+  // Ordering it above the parent is what makes a modal dialog visible. The
+  // client has already grabbed input on the parent by this point, so a dialog
+  // left unstacked reads to the user as a frozen window with nothing on screen.
+  [parent addChildWindow:child ordered:NSWindowAbove];
+  WWNLog("BRIDGE", @"Window %llu is now a child of %llu", event->window_id,
+         event->parent_id);
 }
 
 - (void)handlePopupCreated:(CWindowEvent *)event {

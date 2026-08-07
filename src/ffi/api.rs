@@ -891,6 +891,22 @@ impl WawonaCore {
                         config,
                     });
             }
+            CompositorEvent::WindowParentChanged {
+                window_id,
+                parent_id,
+            } => {
+                self.pending_window_events
+                    .write()
+                    .unwrap()
+                    .push(WindowEvent::WindowParentChanged {
+                        window_id: WindowId {
+                            id: window_id as u64,
+                        },
+                        parent_id: WindowId {
+                            id: parent_id as u64,
+                        },
+                    });
+            }
             CompositorEvent::PopupCreated {
                 client_id,
                 window_id,

@@ -208,6 +208,13 @@ pub enum CompositorEvent {
         width: u32,
         height: u32,
     },
+    /// A toplevel's parent changed via xdg_toplevel.set_parent.
+    ///
+    /// parent_id is 0 when the client unset the parent (set_parent with a nil
+    /// argument). Modal dialogs rely on this: without it the dialog is just an
+    /// unrelated toplevel, so the host never stacks it above the window it
+    /// belongs to while the client still holds a modal grab on that window.
+    WindowParentChanged { window_id: u32, parent_id: u32 },
     /// A window was destroyed
     WindowDestroyed { window_id: u32 },
     /// Window title changed
