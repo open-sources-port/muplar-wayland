@@ -432,39 +432,62 @@ impl XdgPositionerData {
     /// Calculate final position relative to parent anchor rect, bounded by output_rect
     pub fn calculate_position(&self, output_rect: crate::util::geometry::Rect) -> (i32, i32) {
         let (ax, ay, aw, ah) = self.anchor_rect;
-        let mut x = ax;
-        let mut y = ay;
 
-        // 1. Calculate base position from anchor
-        if (self.anchor & 4) != 0 {
-        } else if (self.anchor & 8) != 0 {
-            x += aw;
+        /* anchor and gravity are xdg_positioner enums, not bitmasks:
+         *   0 none, 1 top, 2 bottom, 3 left, 4 right,
+         *   5 top_left, 6 bottom_left, 7 top_right, 8 bottom_right
+         *
+         * Decoding them with & put every diagonal value in the wrong branch.
+         * A GTK submenu asks for anchor=top_right(7), gravity=bottom_right(8);
+         * bottom_right matches neither &1 nor &2, so it fell through to the
+         * centred case and the popup was placed half its own height above the
+         * menu item it belongs to.
+         */
+        const TOP: u32 = 1;
+        const BOTTOM: u32 = 2;
+        const LEFT: u32 = 3;
+        const RIGHT: u32 = 4;
+        const TOP_LEFT: u32 = 5;
+        const BOTTOM_LEFT: u32 = 6;
+        const TOP_RIGHT: u32 = 7;
+        const BOTTOM_RIGHT: u32 = 8;
+
+        let is_left = |v: u32| matches!(v, LEFT | TOP_LEFT | BOTTOM_LEFT);
+        let is_right = |v: u32| matches!(v, RIGHT | TOP_RIGHT | BOTTOM_RIGHT);
+        let is_top = |v: u32| matches!(v, TOP | TOP_LEFT | TOP_RIGHT);
+        let is_bottom = |v: u32| matches!(v, BOTTOM | BOTTOM_LEFT | BOTTOM_RIGHT);
+
+        // 1. Anchor point on the anchor rectangle
+        let anchor = self.anchor as u32;
+        let x = if is_left(anchor) {
+            ax
+        } else if is_right(anchor) {
+            ax + aw
         } else {
-            x += aw / 2;
-        }
-
-        if (self.anchor & 1) != 0 {
-        } else if (self.anchor & 2) != 0 {
-            y += ah;
+            ax + aw / 2
+        };
+        let y = if is_top(anchor) {
+            ay
+        } else if is_bottom(anchor) {
+            ay + ah
         } else {
-            y += ah / 2;
-        }
+            ay + ah / 2
+        };
 
-        // 2. Apply gravity and offset
+        // 2. Gravity: the direction the popup extends from the anchor point
+        let gravity = self.gravity as u32;
         let mut px = x + self.offset.0;
         let mut py = y + self.offset.1;
 
-        if (self.gravity & 4) != 0 {
+        if is_left(gravity) {
             px -= self.width;
-        } else if (self.gravity & 8) != 0 {
-        } else {
+        } else if !is_right(gravity) {
             px -= self.width / 2;
         }
 
-        if (self.gravity & 1) != 0 {
+        if is_top(gravity) {
             py -= self.height;
-        } else if (self.gravity & 2) != 0 {
-        } else {
+        } else if !is_bottom(gravity) {
             py -= self.height / 2;
         }
 
