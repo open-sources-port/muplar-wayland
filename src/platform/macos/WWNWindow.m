@@ -242,7 +242,49 @@
 // Input Handling
 //
 
+/* True when this view's window is the one actually under the cursor.
+ *
+ * Every WWNView installs an NSTrackingActiveAlways tracking area, and AppKit
+ * runs those for overlapping windows of the same app rather than only for the
+ * frontmost one. A popup is a child NSWindow sitting on top of its parent, so
+ * one physical mouse move produced two motion reports -- one from the popup,
+ * one from the terminal underneath -- and each dragged Wayland pointer focus
+ * onto its own surface. The client saw wl_pointer.leave/enter alternating many
+ * times a second, which is a pointer repeatedly leaving the menu: GTK popped
+ * every menu back down within a frame or two of opening it.
+ *
+ * Answered from window frames rather than -[NSWindow windowNumberAtPoint:].
+ * That call is a synchronous round trip to the window server, and this runs on
+ * the mouse-moved path, which AppKit drives far faster than the compositor
+ * consumes it -- enough per-event IPC to stall the UI for as long as a menu is
+ * open. Frame arithmetic needs no IPC. It is also the more predictable test:
+ * windowNumberAtPoint: hit-tests, so it reports straight through the
+ * transparent parts of a borderless popup.
+ */
+- (BOOL)wwnIsWindowUnderCursor {
+  NSWindow *win = self.window;
+  if (!win) {
+    return NO;
+  }
+  NSPoint pt = [NSEvent mouseLocation];
+  if (!NSPointInRect(pt, win.frame)) {
+    return NO;
+  }
+  /* A popup is a child window stacked above its parent, so whenever one covers
+   * the cursor it owns the pointer and this window does not.
+   */
+  for (NSWindow *child in win.childWindows) {
+    if (child.isVisible && NSPointInRect(pt, child.frame)) {
+      return NO;
+    }
+  }
+  return YES;
+}
+
 - (void)mouseEntered:(NSEvent *)event {
+  if (![self wwnIsWindowUnderCursor]) {
+    return;
+  }
   NSPoint loc = [self convertPoint:[event locationInWindow] fromView:nil];
   double y = loc.y;
 
@@ -269,6 +311,17 @@
     if (unchanged || tooSoon) {
       return;
     }
+  }
+
+  /* Kept behind the rate limit above so it runs at most once per delivered
+   * motion, not once per raw AppKit event.
+   *
+   * A click is delivered to the view that was hit, so it is authoritative even
+   * when the window-under-cursor test would disagree (a drag that leaves the
+   * window, say). Only the tracking-area-driven motion needs the filter.
+   */
+  if (!force && ![self wwnIsWindowUnderCursor]) {
+    return;
   }
 
   lastPointerMotionTimestamp_ = timestamp;

@@ -838,18 +838,34 @@ extern void WWNRenderSceneFree(CRenderScene *scene);
     layer.contentsScale = node->scale;
     layer.contentsGravity = kCAGravityResize;
     _surfaceLayers[surfId] = layer;
+  }
 
-    // Attach to window hierarchy (toplevels and popups both in _windows)
-    id host = _windows[winId];
-    if (!host) {
-      id<WWNPopupHost> popup = _popups[winId];
-      host = popup.contentView;
-    } else if ([host isKindOfClass:[NSWindow class]]) {
-      host = [(NSWindow *)host contentView];
-    }
-    if ([host isKindOfClass:[WWNView class]] &&
-        [host respondsToSelector:@selector(contentLayer)]) {
-      [((WWNView *)host).contentLayer addSublayer:layer];
+  /* 2. Bind the layer to the view hosting this node's window.
+   *
+   * Re-checked on every frame rather than once at creation. _surfaceLayers is
+   * keyed by wl_surface id, and those are client object ids: the client frees
+   * them on destroy and the next object reuses the number. A menu is a popup
+   * surface that is created and destroyed on every open, so the second menu
+   * came back on a recycled id, found the first menu's layer still cached, and
+   * skipped attachment entirely -- leaving the layer parented to the popup view
+   * that had already been torn down. The new popup window then had no content
+   * at all, and since it is borderless and non-opaque an empty one is both
+   * invisible and click-through, so it swallowed nothing and the pointer went
+   * to the terminal underneath. That is a menu that never appears.
+   */
+  id host = _windows[winId];
+  if (!host) {
+    id<WWNPopupHost> popup = _popups[winId];
+    host = popup.contentView;
+  } else if ([host isKindOfClass:[NSWindow class]]) {
+    host = [(NSWindow *)host contentView];
+  }
+  if ([host isKindOfClass:[WWNView class]] &&
+      [host respondsToSelector:@selector(contentLayer)]) {
+    CALayer *target = ((WWNView *)host).contentLayer;
+    if (layer.superlayer != target) {
+      [layer removeFromSuperlayer];
+      [target addSublayer:layer];
     }
   }
 
@@ -1913,12 +1929,37 @@ extern void WWNWindowInfoFree(CWindowInfo *info);
   }
 }
 
+/* Forget the cached surface layers hosted by a view that is going away.
+ *
+ * updateLayerForNode: re-parents a layer whose host no longer matches, so a
+ * leftover entry is not a correctness problem on its own. Dropping it here
+ * keeps _surfaceLayers from accumulating one dead layer per surface id for the
+ * lifetime of the compositor -- popup surfaces churn on every menu open.
+ */
+- (void)dropCachedLayersHostedBy:(id)contentView {
+  if (![contentView isKindOfClass:[WWNView class]]) {
+    return;
+  }
+  CALayer *hostLayer = ((WWNView *)contentView).contentLayer;
+  NSMutableArray<NSNumber *> *stale = [NSMutableArray array];
+  for (NSNumber *key in _surfaceLayers) {
+    if (_surfaceLayers[key].superlayer == hostLayer) {
+      [stale addObject:key];
+    }
+  }
+  for (NSNumber *key in stale) {
+    [_surfaceLayers[key] removeFromSuperlayer];
+    [_surfaceLayers removeObjectForKey:key];
+  }
+}
+
 - (void)handleWindowDestroyed:(CWindowEvent *)event {
   // Popup host windows are also present in _windows so render layers can find
   // them. They must be removed only through WWNPopupHost; treating one as a
   // toplevel first releases its content/animation state twice.
   id<WWNPopupHost> popupHost = [_popups objectForKey:@(event->window_id)];
   if (popupHost) {
+    [self dropCachedLayersHostedBy:popupHost.contentView];
     [popupHost dismiss];
     [_popups removeObjectForKey:@(event->window_id)];
     [_windows removeObjectForKey:@(event->window_id)];
@@ -1936,6 +1977,7 @@ extern void WWNWindowInfoFree(CWindowInfo *info);
       // Detach known surface layers from this host view before teardown.
       // This prevents stale layer tree references after client disconnect.
       id contentView = [window contentView];
+      [self dropCachedLayersHostedBy:contentView];
       if ([contentView isKindOfClass:[WWNView class]]) {
         CALayer *hostLayer = ((WWNView *)contentView).contentLayer;
         NSArray<CALayer *> *children = [hostLayer.sublayers copy];
@@ -2184,7 +2226,33 @@ extern void WWNWindowInfoFree(CWindowInfo *info);
 #ifdef __cplusplus
 extern "C" {
 #endif
+  /* Send the compositor's diagnostics to the file named by WAWONA_LOG_FILE.
+   *
+   * Both wlog! and WWNLog write to stderr, which goes nowhere reachable when
+   * the instance manager is launched the normal way: it is not in the unified
+   * log, and starting the bundle binary from a terminal to watch stderr hangs.
+   * Redirecting the stream itself captures every existing call site without
+   * touching any of them. Set the variable with `launchctl setenv` so a
+   * normally-launched app inherits it; unset it and the compositor logs exactly
+   * as before.
+   */
+  static void wwn_redirect_log_if_requested(void) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+      const char *path = getenv("WAWONA_LOG_FILE");
+      if (!path || !path[0])
+        return;
+      FILE *f = freopen(path, "a", stderr);
+      if (!f) {
+        return;
+      }
+      setvbuf(stderr, NULL, _IOLBF, 0);
+      WWNLog("BRIDGE", @"log redirected to %s (pid %d)", path, (int) getpid());
+    });
+  }
+
   void MuplarWawonaStartInProcess(const char *socket_name) {
+    wwn_redirect_log_if_requested();
     void (^block)(void) = ^{
       NSScreen *screen = [NSScreen mainScreen];
       CGFloat scale = screen ? screen.backingScaleFactor : 1.0;

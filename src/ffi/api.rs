@@ -1757,12 +1757,28 @@ fn ensure_pointer_focus(
 
     let target_sid = match target_sid {
         Some(sid) => sid,
-        None => return,
+        None => {
+            crate::wlog!(
+                crate::util::logging::COMPOSITOR,
+                "POPUPDBG focus: window={} has NO surface (focus stays {:?})",
+                window_id.id,
+                state.seat.pointer.focus
+            );
+            return;
+        }
     };
 
     if state.seat.pointer.focus == Some(target_sid) {
         return;
     }
+
+    crate::wlog!(
+        crate::util::logging::COMPOSITOR,
+        "POPUPDBG focus: window={} surf {:?} -> {}",
+        window_id.id,
+        state.seat.pointer.focus,
+        target_sid
+    );
 
     if let Some(old_sid) = state.seat.pointer.focus {
         if let Some(surface) = state.surfaces.get(&old_sid).cloned() {
@@ -2187,6 +2203,16 @@ impl WawonaCore {
             }
             _ => {}
         }
+
+        crate::wlog!(
+            crate::util::logging::COMPOSITOR,
+            "POPUPDBG button: window={} code={} state={:?} focus={:?} grabs={}",
+            window_id.id,
+            button_code,
+            wl_state,
+            state.seat.pointer.focus,
+            state.seat.popup_grab_stack.len()
+        );
 
         let focused_client = state.focused_pointer_client();
         state.seat.broadcast_pointer_button(

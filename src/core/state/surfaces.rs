@@ -167,6 +167,12 @@ impl CompositorState {
         }
 
         self.ext.presentation.mark_committed(surface_id);
+        /* Answer the popup's initial commit before the commit's own events go
+         * out. This is the point xdg-shell designates for the first configure,
+         * and it is a no-op on every later commit.
+         */
+        self.send_popup_initial_configure(surface_id);
+
         self.finalize_surface_commit(surface_id);
     }
 
@@ -220,6 +226,66 @@ impl CompositorState {
                     self.apply_subsurface_cached_state_recursive(child_id);
                 }
             }
+        }
+    }
+
+    /// Answer a popup's initial commit with its configure.
+    ///
+    /// xdg-shell sequences a popup as: get_popup, commit with no buffer,
+    /// compositor configure, ack, then attach and commit. Sending the configure
+    /// at get_popup time spends it before the client is listening: GTK's menus
+    /// never acked it, so they sat waiting for a configure that had already
+    /// been sent, never attached a buffer, and destroyed the popup unmapped --
+    /// a menu that opens and shows nothing.
+    ///
+    /// No-op once the initial configure has gone out, so ordinary commits do
+    /// not re-configure the popup.
+    fn send_popup_initial_configure(&mut self, surface_id: u32) {
+        let key = self
+            .xdg
+            .popups
+            .iter()
+            .find(|(_, d)| d.surface_id == surface_id && !d.initial_configure_sent)
+            .map(|(k, _)| k.clone());
+        let Some(key) = key else {
+            return;
+        };
+
+        let (popup_res, geometry, xdg_surface_id) = {
+            let d = &self.xdg.popups[&key];
+            (d.resource.clone(), d.geometry, d.xdg_surface_id)
+        };
+        let Some(popup_res) = popup_res else {
+            return;
+        };
+
+        let serial = self.next_serial();
+        let (px, py, pw, ph) = geometry;
+
+        crate::wlog!(
+            crate::util::logging::COMPOSITOR,
+            "Configuring xdg_popup on initial commit: surface={} x={} y={} w={} h={} serial={}",
+            surface_id,
+            px,
+            py,
+            pw,
+            ph,
+            serial
+        );
+
+        popup_res.configure(px, py, pw, ph);
+
+        let client_id = key.0.clone();
+        if let Some(sd) = self.xdg.surfaces.get_mut(&(client_id, xdg_surface_id)) {
+            sd.pending_serial = serial;
+            sd.pending_serials.push(serial);
+            if let Some(res) = &sd.resource {
+                res.configure(serial);
+            }
+        }
+
+        if let Some(d) = self.xdg.popups.get_mut(&key) {
+            d.initial_configure_sent = true;
         }
     }
 

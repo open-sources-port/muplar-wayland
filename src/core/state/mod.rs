@@ -396,6 +396,12 @@ pub struct XdgPopupData {
     pub anchor_rect: (i32, i32, i32, i32),
     pub grabbed: bool,
     pub repositioned_token: Option<u32>,
+    /// Whether the initial configure has been sent yet.
+    ///
+    /// xdg-shell requires it to follow the client's initial no-buffer commit,
+    /// not the get_popup request. Sending it early means the client never acks,
+    /// never attaches a buffer, and eventually destroys the popup unmapped.
+    pub initial_configure_sent: bool,
     /// The actual protocol resource
     pub resource: Option<xdg_popup::XdgPopup>,
 }

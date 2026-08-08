@@ -226,6 +226,7 @@ impl Dispatch<xdg_surface::XdgSurface, u32> for CompositorState {
                         anchor_rect: positioner_data.anchor_rect,
                         grabbed: false,
                         repositioned_token: None,
+                        initial_configure_sent: false,
                         resource: None,
                     };
 
@@ -288,32 +289,19 @@ impl Dispatch<xdg_surface::XdgSurface, u32> for CompositorState {
                         },
                     );
 
-                    // Send initial configure
-                    let next_serial = state.next_serial();
-                    crate::wlog!(
-                        crate::util::logging::COMPOSITOR,
-                        "Configuring xdg_popup: window={} surface={} x={} y={} w={} h={} serial={}",
-                        window_id,
-                        wl_surface_id,
-                        px,
-                        py,
-                        positioner_data.width,
-                        positioner_data.height,
-                        next_serial
-                    );
-
-                    popup.configure(px, py, positioner_data.width, positioner_data.height);
-
-                    // Send surface configure
-                    if let Some(surface_data) = state
-                        .xdg
-                        .surfaces
-                        .get_mut(&(client_id.clone(), xdg_surface_id))
-                    {
-                        surface_data.pending_serial = next_serial;
-                        surface_data.pending_serials.push(next_serial);
-                    }
-                    resource.configure(next_serial);
+                    /* No configure here.
+                     *
+                     * xdg-shell has the compositor answer the client's initial
+                     * no-buffer commit with the configure, not the get_popup
+                     * request. Sending it early looked harmless -- toplevels
+                     * tolerate it -- but GTK's menus never acked one sent
+                     * before their commit, so they waited for a configure that
+                     * had already been spent, never attached a buffer, and
+                     * destroyed the popup unmapped. That is a menu that opens
+                     * and vanishes with nothing drawn.
+                     *
+                     * finalize_surface_commit sends it on the initial commit.
+                     */
                     return;
                 }
             }

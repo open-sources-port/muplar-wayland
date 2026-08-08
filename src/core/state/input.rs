@@ -305,6 +305,13 @@ impl CompositorState {
                     }
                 }
 
+                crate::wlog!(
+                    crate::util::logging::COMPOSITOR,
+                    "POPUPDBG press: focus={:?} grabs={} on_grab_tree={}",
+                    self.seat.pointer.focus,
+                    self.seat.popup_grab_stack.len(),
+                    on_grab_tree
+                );
                 if !on_grab_tree {
                     self.dismiss_popup_grab();
                 }
