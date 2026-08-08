@@ -53,6 +53,7 @@ impl Dispatch<xdg_surface::XdgSurface, u32> for CompositorState {
                         XdgToplevelData::new(window_id, data.surface_id, xdg_surface_id);
                     toplevel_data.width = initial_width;
                     toplevel_data.height = initial_height;
+                    toplevel_data.activated = true;
                     // Store the window ID (u32) as user data for the toplevel resource
                     let toplevel: wayland_protocols::xdg::shell::server::xdg_toplevel::XdgToplevel =
                         data_init.init(id, window_id);
@@ -74,48 +75,6 @@ impl Dispatch<xdg_surface::XdgSurface, u32> for CompositorState {
 
                     // Add window to state
                     state.add_window(window);
-
-                    // Send initial configure.
-                    // When Force SSD is active the platform window has a native
-                    // titlebar that reduces the usable content area below the
-                    // full output size.  Sending (0, 0) here defers the size
-                    // decision to the client and avoids the nested compositor
-                    // latching onto the raw output dimensions before the correct
-                    // content-area size arrives via the subsequent injectWindowResize
-                    // that handleWindowCreated: fires after NSWindow is created.
-                    //
-                    // For non-SSD (CSD) windows we continue to send the output
-                    // size as a hint so the client can size itself reasonably.
-                    let serial = state.next_serial();
-
-                    let mut states: Vec<u8> = vec![];
-                    states.extend_from_slice(
-                        &((wayland_protocols::xdg::shell::server::xdg_toplevel::State::Activated
-                            as u32)
-                            .to_ne_bytes()),
-                    );
-
-                    let (configure_w, configure_h) = match state.decoration_policy {
-                        crate::core::state::DecorationPolicy::ForceServer => (0u32, 0u32),
-                        _ => (initial_width, initial_height),
-                    };
-
-                    crate::wlog!(crate::util::logging::COMPOSITOR,
-                        "Configuring xdg_toplevel: window={} surface={} size={}x{} (force_ssd={}) states={:?} serial={}",
-                        window_id, data.surface_id, configure_w, configure_h,
-                        matches!(state.decoration_policy, crate::core::state::DecorationPolicy::ForceServer),
-                        states, serial);
-
-                    toplevel.configure(configure_w as i32, configure_h as i32, states);
-                    if let Some(surface_data) = state
-                        .xdg
-                        .surfaces
-                        .get_mut(&(client_id.clone(), xdg_surface_id))
-                    {
-                        surface_data.pending_serial = serial;
-                        surface_data.pending_serials.push(serial);
-                    }
-                    resource.configure(serial);
 
                     // Set surface role
                     if let Some(surface) = state.get_surface(data.surface_id) {

@@ -167,10 +167,11 @@ impl CompositorState {
         }
 
         self.ext.presentation.mark_committed(surface_id);
-        /* Answer the popup's initial commit before the commit's own events go
-         * out. This is the point xdg-shell designates for the first configure,
-         * and it is a no-op on every later commit.
+        /* Answer xdg-shell initial commits before the commit's own events go
+         * out. This is the point the protocol designates for the first
+         * configure, and these are no-ops on every later commit.
          */
+        self.send_toplevel_initial_configure(surface_id);
         self.send_popup_initial_configure(surface_id);
 
         self.finalize_surface_commit(surface_id);
@@ -226,6 +227,48 @@ impl CompositorState {
                     self.apply_subsurface_cached_state_recursive(child_id);
                 }
             }
+        }
+    }
+
+    /// Answer a toplevel's initial commit with its configure.
+    ///
+    /// xdg-shell sequences a toplevel as: get_toplevel, commit with no buffer,
+    /// compositor configure, ack, then attach and commit. Sending the configure
+    /// during get_toplevel can spend it before strict clients are ready to ack;
+    /// foot then waits for a configure that already went by and never attaches
+    /// its first buffer.
+    fn send_toplevel_initial_configure(&mut self, surface_id: u32) {
+        let key = self
+            .xdg
+            .toplevels
+            .iter()
+            .find(|(_, d)| d.surface_id == surface_id && !d.initial_configure_sent)
+            .map(|(k, _)| k.clone());
+        let Some((client_id, toplevel_id)) = key else {
+            return;
+        };
+
+        let (width, height) = {
+            let d = &self.xdg.toplevels[&(client_id.clone(), toplevel_id)];
+            (d.width, d.height)
+        };
+        let (configure_w, configure_h) = match self.decoration_policy {
+            crate::core::state::DecorationPolicy::ForceServer => (0, 0),
+            _ => (width, height),
+        };
+
+        crate::wlog!(
+            crate::util::logging::COMPOSITOR,
+            "Configuring xdg_toplevel on initial commit: surface={} tl_id={} size={}x{}",
+            surface_id,
+            toplevel_id,
+            configure_w,
+            configure_h
+        );
+        self.send_toplevel_configure(client_id.clone(), toplevel_id, configure_w, configure_h);
+
+        if let Some(d) = self.xdg.toplevels.get_mut(&(client_id, toplevel_id)) {
+            d.initial_configure_sent = true;
         }
     }
 

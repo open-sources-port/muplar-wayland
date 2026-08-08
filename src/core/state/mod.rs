@@ -320,6 +320,12 @@ pub struct XdgToplevelData {
     pub saved_geometry: Option<(i32, i32, u32, u32)>,
     /// Pending configure serial
     pub pending_serial: u32,
+    /// Whether the initial configure has been sent yet.
+    ///
+    /// xdg-shell requires the initial toplevel configure to answer the
+    /// client's initial no-buffer commit. Sending it during get_toplevel can
+    /// leave strict clients waiting forever for a configure they will ack.
+    pub initial_configure_sent: bool,
     /// Activation state
     pub activated: bool,
     /// If the window is currently maximized
@@ -351,6 +357,7 @@ impl XdgToplevelData {
             max_height: 0,
             saved_geometry: None,
             pending_serial: 0,
+            initial_configure_sent: false,
             activated: false,
             maximized: false,
             fullscreen: false,
